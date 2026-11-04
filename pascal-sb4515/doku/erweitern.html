@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ändern und Verschieben – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li class="cur"><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#die-quelle-wird-erzeugt">Die Quelle wird erzeugt</a></li><li><a href="#verschiebbarkeit">Verschiebbarkeit</a></li><li><a href="#bekannte-schwaechen-des-originals">Bekannte Schwächen des Originals</a></li><li><a href="#mzf-datei-bauen">MZF-Datei bauen</a></li></ul></aside>
+<h1 id="aendern-und-verschieben">Ändern und Verschieben</h1>
+<h2 id="die-quelle-wird-erzeugt">Die Quelle wird erzeugt</h2>
+<p><code>sb4515/SB4515.asm</code> ist nicht von Hand geschrieben, sondern wird von <code>tools/dis4515.py</code> aus
+<code>PASCAL.OBJ</code> und der Konfiguration <code>sb4515/sb4515_cfg.py</code> erzeugt (<code>make sb4515-src</code>). Die
+Konfiguration enthält:</p>
+<table>
+<thead>
+<tr>
+<th>Eintrag</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ENTRIES</code>, <code>TABLES</code>, <code>INLINE</code>, <code>DATA</code></td>
+<td>Einsprünge, Sprungtabellen, Daten hinter Aufrufen, Datenbereiche</td>
+</tr>
+<tr>
+<td><code>NAMES</code>, <code>ROUTINES</code></td>
+<td>Namen; <code>ROUTINES</code> zusätzlich die Beschreibung, die als Kommentarblock erscheint</td>
+</tr>
+<tr>
+<td><code>COMMENTS</code>, <code>BLOCKS</code></td>
+<td>Zeilenkommentare und Abschnittsköpfe</td>
+</tr>
+<tr>
+<td><code>IMM_NUM</code></td>
+<td>Befehle, deren 16-Bit-Wert eine Zahl und keine Adresse ist</td>
+</tr>
+<tr>
+<td><code>ERR_TEXT</code>, <code>KEYWORD_NOTES</code></td>
+<td>Fehlertexte und Kurzbeschreibungen der Schlüsselwörter</td>
+</tr>
+</tbody>
+</table>
+<p>Wer Namen oder Kommentare ändern will, ändert die Konfiguration und erzeugt die Quelle neu;
+<code>make check</code> bestätigt danach, dass das Abbild bytegleich bleibt. Der Generator meldet doppelte
+Namen und Namen, die mit dem Monitor kollidieren.</p>
+<p>Für <strong>inhaltliche Änderungen</strong> am Interpreter (Fehler beheben, Befehle ergänzen) ist es
+einfacher, die erzeugte Quelle als Ausgangspunkt zu nehmen, sie unter neuem Namen weiterzuführen
+und den Generator nicht mehr zu benutzen.</p>
+<h2 id="verschiebbarkeit">Verschiebbarkeit</h2>
+<p>Im Interpreterteil stehen alle Adressen als Symbole: Sprungziele, Tabellen, Puffer, die
+Startwerte selbstmodifizierter Befehle (<code>SM_…</code>) und die Zeiger in Datenbereichen. Echte Zahlen,
+die zufällig wie Adressen aussehen, sind ausgenommen und begründet (<code>IMM_NUM</code>,
+<code>sb4515/reloc_allow.txt</code>), z. B. 2710h = 10000, 4000h = „bis zum Ende“, 42EDh = die Befehlsbytes
+<code>SBC HL,BC</code>.</p>
+<p><code>make reloc-check</code> fügt an sieben Stellen (<code>PAS_START</code>, <code>TOKENIZE</code>, <code>SYN_EXPR</code>, <code>PRT_OUT</code>,
+<code>FP2STR</code>, <code>FSIN</code>, <code>RUN_START</code>) je 16 Bytes ein, vergleicht das Ergebnis mit dem Original
+(<code>tools/reloccheck.py</code>) und lässt jede verschobene Fassung den vollständigen Programmlauf im
+Emulator bestehen. Damit kann man Code einfügen, ohne Adressen von Hand nachzuziehen.</p>
+<h3 id="was-fest-bleibt">Was fest bleibt</h3>
+<table>
+<thead>
+<tr>
+<th>Stelle</th>
+<th>Grund</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Monitor 0000h–129Fh</td>
+<td>eigene Quelle, Adressen durch den MZ-80B und die Programme vorgegeben</td>
+</tr>
+<tr>
+<td><code>LD BC,1300h</code> in <code>RUN_FKEY</code></td>
+<td>Ende des Bereichs der Funktionstastentexte (FARE 1200h–12FFh)</td>
+</tr>
+<tr>
+<td>Grafik-RAM E000h, VRAM D000h</td>
+<td>Hardware</td>
+</tr>
+<tr>
+<td><code>TXT_START</code></td>
+<td>Programmtext beginnt direkt hinter dem Interpreter; wächst der Code, wird weniger Speicher frei</td>
+</tr>
+</tbody>
+</table>
+<p>Die Startdaten <code>FKEY_DEF</code> und <code>PAS_INIT</code> liegen am Anfang des Programmbereichs und werden vom
+ersten Programm überschrieben. Neue Startdaten gehören ebenfalls dorthin oder müssen vor
+<code>TXT_START</code> liegen.</p>
+<h2 id="bekannte-schwaechen-des-originals">Bekannte Schwächen des Originals</h2>
+<table>
+<thead>
+<tr>
+<th>Stelle</th>
+<th>Befund</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FATN</code></td>
+<td>ARCTAN nur auf etwa 5 Stellen genau (0.78540579 statt 0.78539816)</td>
+</tr>
+<tr>
+<td><code>SYN_WRITEX</code></td>
+<td><code>BOOLEAN</code> lässt sich nicht ausgeben</td>
+</tr>
+<tr>
+<td><code>SYN_RDIV</code></td>
+<td><code>/</code> ohne automatische Umwandlung von INTEGER</td>
+</tr>
+<tr>
+<td>Fehlerbehandlung</td>
+<td>ein Laufzeitfehler schließt eine offene Datendatei nicht ab</td>
+</tr>
+</tbody>
+</table>
+<h2 id="mzf-datei-bauen">MZF-Datei bauen</h2>
+<p><code>make sb4515/SB4515.mzf</code> erzeugt aus <code>build/SB4515.bin</code> die Kassettendatei (<code>tools/mkmzf.py</code>):
+Attribut 01h, Name „PASCAL SB-4515“, Laden und Start bei 0000h. Für eine geänderte Fassung:</p>
+<pre><code>make sb4515-src                 # nur wenn die Konfiguration geändert wurde
+make build/SB4515.bin
+python3 tools/mkmzf.py build/SB4515.bin neu.mzf --name &quot;PASCAL NEU&quot; --load 0000 --exec 0000
+</code></pre>
+<p><code>make check</code> vergleicht die Daten der MZF-Datei mit <code>PASCAL.OBJ</code>; für eine geänderte Fassung
+entfällt dieser Vergleich natürlich.</p>
+<footer><div class="pn"><a class="prev" href="fehler.html">← Fehler</a><a class="next" href="werkzeuge.html">Werkzeuge und Tests →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

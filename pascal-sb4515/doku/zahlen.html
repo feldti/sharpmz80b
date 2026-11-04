@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zahlen und Arithmetik – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li class="cur"><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#integer">INTEGER</a></li><li><a href="#real-5-byte-gleitkomma">REAL: 5-Byte-Gleitkomma</a></li><li><a href="#funktionen">Funktionen</a></li></ul></aside>
+<h1 id="zahlen-und-arithmetik">Zahlen und Arithmetik</h1>
+<h2 id="integer">INTEGER</h2>
+<p>16 Bit mit Vorzeichen (−32768 … 32767), auf dem Laufzeitstapel niederwertiges Byte zuerst.
+<code>+</code> und <code>-</code> rechnen direkt in <code>RUN_PLUS</code>/<code>RUN_MINUS</code>, <code>*</code>, <code>DIV</code> und <code>MOD</code> über <code>IMUL</code>
+(6083h), <code>IDIV</code> (605Ch) und <code>IMOD</code> (6074h). Diese verknüpfen erst die Vorzeichen
+(<code>ISIGNS</code>, Ergebnis im Operanden von <code>SM_ISIGN</code>) und rechnen dann mit Beträgen (<code>UMUL16</code>,
+<code>UDIV16</code>). <code>DIV</code> schneidet zur Null hin ab: <code>-7 DIV 2</code> ergibt −3. Überlauf und Division durch 0
+ergeben Err 13.</p>
+<p>Ganzzahlige Konstanten liest <code>GET_DEC</code> (182Fh). <code>READ</code> nimmt −32767 bis 32767 an; „32768“
+ergibt Err 13. −32768 kann nur durch Rechnen entstehen (<code>-32767-1</code>); <code>INT2STR</code> gibt es über den
+eigenen Text <code>TXT_M32768</code> aus, weil sich der Betrag nicht als positive Zahl darstellen lässt.
+Beides ist im Emulatortest geprüft.</p>
+<h2 id="real-5-byte-gleitkomma">REAL: 5-Byte-Gleitkomma</h2>
+<pre><code>Byte 0      Bit 7 = Vorzeichen (1 = positiv!), Bit 0-6 = Exponent mit Bias 40h
+Byte 1-4    Mantisse, niederwertiges Byte zuerst, normalisiert (Bit 31 gesetzt)
+Wert        Mantisse / 2^32 * 2^(Exponent - 40h)
+</code></pre>
+<p>Anders als bei vielen anderen Formaten bedeutet ein <strong>gesetztes</strong> Bit 7 „positiv“. Null hat die
+Mantisse 0; <code>FP_SETZERO</code> erzeugt 80h, 00h, 00h, 00h, 00h.</p>
+<table>
+<thead>
+<tr>
+<th>Wert</th>
+<th>Bytes</th>
+<th>Name in der Quelle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>80 00 00 00 00</code></td>
+<td><code>FP_ZERO</code></td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>C1 00 00 00 80</code></td>
+<td><code>FP_PONE</code></td>
+</tr>
+<tr>
+<td>−1</td>
+<td><code>41 00 00 00 80</code></td>
+<td><code>FP_MONE</code></td>
+</tr>
+<tr>
+<td>π/2</td>
+<td><code>C1 A1 DA 0F C9</code></td>
+<td><code>FP_PI2</code></td>
+</tr>
+<tr>
+<td>ln 2</td>
+<td><code>C0 F8 17 72 B1</code></td>
+<td><code>FP_LN2</code></td>
+</tr>
+</tbody>
+</table>
+<p>Die Quelle zeigt bei jeder Konstante den Dezimalwert als Kommentar. Der Wertebereich reicht laut
+Handbuch bis ±0.92233720E+19; ein größeres Ergebnis ergibt Err 13 (<code>1E10*1E10</code> im Test).</p>
+<h3 id="grundrechenarten">Grundrechenarten</h3>
+<p>Alle Routinen arbeiten auf Speicherstellen: <code>(DE) = (DE) op (HL)</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FADD</code></td>
+<td style="text-align: right;">4806h</td>
+<td>Addition: Exponenten angleichen, Mantissen addieren oder subtrahieren, normalisieren</td>
+</tr>
+<tr>
+<td><code>FSUB</code></td>
+<td style="text-align: right;">4803h</td>
+<td>Subtraktion: dreht das Vorzeichen von (HL) um und läuft in <code>FADD</code></td>
+</tr>
+<tr>
+<td><code>FMUL</code></td>
+<td style="text-align: right;">4900h</td>
+<td>Multiplikation, 32 × 32 Bit</td>
+</tr>
+<tr>
+<td><code>FDIV</code></td>
+<td style="text-align: right;">49CEh</td>
+<td>Division; Überlauf Err 13</td>
+</tr>
+<tr>
+<td><code>FCMP</code></td>
+<td style="text-align: right;">4E5Eh</td>
+<td>Vergleich: Z gleich, C kleiner</td>
+</tr>
+<tr>
+<td><code>FINT</code></td>
+<td style="text-align: right;">4E81h</td>
+<td>ganzzahligen Anteil bilden</td>
+</tr>
+<tr>
+<td><code>FCOPY</code></td>
+<td style="text-align: right;">4F57h</td>
+<td>5 Bytes kopieren</td>
+</tr>
+</tbody>
+</table>
+<p>Zwischenergebnisse stehen in <code>FP_SIGN</code>, <code>FP_RSIGN</code>, <code>FP_EXP</code> und den Speichern <code>FTMP1</code> …
+<code>FTMP4</code>; <code>FTMP1_ADDMUL</code> ist ein Schritt des Horner-Schemas für die Reihen.</p>
+<h3 id="umwandlung">Umwandlung</h3>
+<p><code>STR2FP</code> (4A6Dh) liest eine Zahl aus dem Text (Ziffern, Dezimalpunkt, Exponent). <code>FP2STR</code>
+(4CB6h) wandelt mit Hilfe der Zehnerpotenzen <code>FP_POW10</code> (1E-19 … 1E18) zurück. <code>WRITELN</code>
+ohne Format gibt REAL rechtsbündig in 15 Stellen mit 8 gültigen Ziffern aus; sehr große und sehr
+kleine Beträge erscheinen in Exponentenschreibweise ohne führende 0:</p>
+<pre><code>     0.33333333        1/3
+  .12345678E+09        123456.78*1000
+      -.123E-03        -0.000123
+     .3333             x:10:4
+</code></pre>
+<h2 id="funktionen">Funktionen</h2>
+<table>
+<thead>
+<tr>
+<th>Funktion</th>
+<th>Routine</th>
+<th>Verfahren</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SIN(</code></td>
+<td><code>RUN_SIN</code> → <code>FSIN</code></td>
+<td>Argument auf eine Periode reduzieren (<code>TRIG_ARG</code>), Quadrant über Vergleiche mit π/2 und π, Reihe in x/(π/2) (Koeffizienten <code>SIN_COEF</code>)</td>
+</tr>
+<tr>
+<td><code>COS(</code></td>
+<td><code>FCOS</code></td>
+<td>über <code>FSIN</code> mit verschobenem Argument</td>
+</tr>
+<tr>
+<td><code>TAN(</code></td>
+<td><code>FTAN</code></td>
+<td>sin/cos</td>
+</tr>
+<tr>
+<td><code>ARCTAN(</code></td>
+<td><code>FATN</code></td>
+<td>Reihe (<code>ATN_COEF</code>, 9 Koeffizienten); große Beträge vermutlich über 1/x (<code>FRECIP</code>)</td>
+</tr>
+<tr>
+<td><code>EXP(</code></td>
+<td><code>FEXP</code></td>
+<td>Reihe (<code>EXP_COEF</code>, enthält ln 2, 1/√2 und 0,5), Exponent über <code>FEXP_SCALE</code></td>
+</tr>
+<tr>
+<td><code>LN(</code></td>
+<td><code>FLN</code></td>
+<td>Mantisse und Exponent getrennt, Reihe mit √2 (<code>LN_COEF</code>)</td>
+</tr>
+<tr>
+<td><code>LOG(</code></td>
+<td><code>FLOG</code></td>
+<td><code>LN(x)</code> · log₁₀ e (<code>FP_LOG10E</code>)</td>
+</tr>
+<tr>
+<td><code>SQRT(</code></td>
+<td><code>FSQRT</code></td>
+<td>Exponent halbieren (<code>EXP_HALF</code>), Startwert über Konstanten (<code>SQRT_C1</code> …), dann Verbesserungsschritte</td>
+</tr>
+<tr>
+<td><code>RND(</code></td>
+<td><code>FRND</code></td>
+<td>neue Zufallszahl aus der vorigen (<code>RND_SEED</code>, Faktor <code>FP_23</code>)</td>
+</tr>
+<tr>
+<td><code>ABS(</code>, <code>TRUNC(</code>, <code>FLOAT(</code></td>
+<td><code>RUN_ABS</code>, <code>RUN_TRUNC</code>, <code>RUN_FLOAT</code></td>
+<td><code>TRUNC</code> und <code>FLOAT</code> gehen über Text (<code>FP2STR</code>/<code>STR2FP</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="genauigkeit">Genauigkeit</h3>
+<p>Der Emulatortest vergleicht die Ausgaben mit Python. Mit acht ausgegebenen Stellen stimmen
+überein:</p>
+<table>
+<thead>
+<tr>
+<th>Ausdruck</th>
+<th>Ausgabe</th>
+<th>genauer Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1.0/3.0</code></td>
+<td>0.33333333</td>
+<td>0.333333333</td>
+</tr>
+<tr>
+<td><code>sin(1.0)</code></td>
+<td>0.84147098</td>
+<td>0.841470985</td>
+</tr>
+<tr>
+<td><code>cos(1.0)</code></td>
+<td>0.54030231</td>
+<td>0.540302306</td>
+</tr>
+<tr>
+<td><code>tan(0.5)</code></td>
+<td>0.54630249</td>
+<td>0.546302490</td>
+</tr>
+<tr>
+<td><code>sqrt(2.0)</code></td>
+<td>1.4142136</td>
+<td>1.414213562</td>
+</tr>
+<tr>
+<td><code>ln(10.0)</code></td>
+<td>2.3025851</td>
+<td>2.302585093</td>
+</tr>
+<tr>
+<td><code>log(1000.0)</code></td>
+<td>3</td>
+<td>3</td>
+</tr>
+<tr>
+<td><code>exp(1.0)</code></td>
+<td>2.7182818</td>
+<td>2.718281828</td>
+</tr>
+<tr>
+<td><code>arctan(1.0)</code></td>
+<td><strong>0.78540579</strong></td>
+<td>0.785398163</td>
+</tr>
+</tbody>
+</table>
+<p><code>ARCTAN</code> ist nur auf etwa fünf Stellen genau – eine Schwäche des Originals, kein Fehler der
+Analyse.</p>
+<footer><div class="pn"><a class="prev" href="ausfuehrung.html">← Ausführung</a><a class="next" href="befehle.html">Befehlsreferenz →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

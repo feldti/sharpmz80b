@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Überblick – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li class="cur"><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#das-system-in-zahlen">Das System in Zahlen</a></li><li><a href="#was-es-nicht-gibt">Was es nicht gibt</a></li><li><a href="#fassung-und-quellen">Fassung und Quellen</a></li><li><a href="#benennung">Benennung</a></li></ul></aside>
+<h1 id="pascal-interpreter-sb-4515-technische-dokumentation">PASCAL-Interpreter SB-4515 – Technische Dokumentation</h1>
+<p>Diese Dokumentation beschreibt den <strong>PASCAL-Interpreter SB-4515</strong> von Sharp (1981) für den
+<strong>Sharp MZ-80B</strong>, so wie er im kommentierten Disassembly <code>sb4515/SB4515.asm</code> vorliegt.</p>
+<p>SB-4515 ist kein Compiler, sondern ein Interpreter für eine Teilmenge von PASCAL mit eingebautem
+Zeileneditor. Das Programm wird beim Eintippen in Token umgesetzt. Beim Start mit <code>G</code> läuft erst
+ein <strong>Prüflauf</strong> über den ganzen Text: Er prüft Deklarationen, Syntax und Typen und trägt die
+Adressen der Variablen und die Sprungziele direkt in den Tokentext ein. Danach führt die
+<strong>Ausführung</strong> den so vorbereiteten Text aus. Dazu kommen Gleitkomma-Arithmetik, Grafik,
+Drucker, Kassettendateien, Musik und die Ansteuerung des Farbterminals.</p>
+<div class="cards">
+<p><a href="architektur.html"><strong>Aufbau und Speicher</strong>Start über den Monitor, Speicherkarte, Arbeitsbereiche.</a>
+<a href="editor.html"><strong>Editor und Programmtext</strong>Kommandos, Zeilen ohne Nummern, Token, Listing.</a>
+<a href="pruefung.html"><strong>Prüflauf und Symboltabellen</strong>Deklarationen, Typen, eingetragene Adressen.</a>
+<a href="ausfuehrung.html"><strong>Ausführung</strong>Laufzeitstapel, Ausdrücke, Anweisungen, Unterprogramme.</a>
+<a href="zahlen.html"><strong>Zahlen und Arithmetik</strong>INTEGER, 5-Byte-Gleitkomma, Funktionen, Genauigkeit.</a>
+<a href="befehle.html"><strong>Befehlsreferenz</strong>Alle Schlüsselwörter mit Token und Routinen.</a>
+<a href="ein-ausgabe.html"><strong>Ein-/Ausgabe, Grafik, Drucker</strong>READ/WRITE, Kassette, Grafik, Farbterminal.</a>
+<a href="fehler.html"><strong>Fehler</strong>Alle Fehlernummern, Ausgabe, Kassettenfehler.</a>
+<a href="erweitern.html"><strong>Ändern und Verschieben</strong>Generator, Verschiebbarkeit, MZF-Datei.</a>
+<a href="werkzeuge.html"><strong>Werkzeuge und Tests</strong>Make-Ziele, Emulatorlauf, Prüfungen.</a>
+<a href="routinen.html"><strong>Routinenverzeichnis</strong>Alle kommentierten Routinen mit Adresse.</a></p>
+</div>
+
+<h2 id="das-system-in-zahlen">Das System in Zahlen</h2>
+<table>
+<thead>
+<tr>
+<th>Merkmal</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hersteller, Jahr</td>
+<td>Sharp Corp., 1981 (<code>Copyright (C) 1981 by SHARP Corp.</code>)</td>
+</tr>
+<tr>
+<td>Rechner</td>
+<td>Sharp MZ-80B, Z80 mit 4 MHz, 64 KB RAM</td>
+</tr>
+<tr>
+<td>Abbild</td>
+<td><code>PASCAL.OBJ</code> (DISK18), 61EDh Bytes (25 069), geladen ab 0000h; als Kassettendatei <code>sb4515/SB4515.mzf</code></td>
+</tr>
+<tr>
+<td>Monitor im Abbild</td>
+<td>SB-1511 (0000h–129Fh), bis auf den Sprung in <code>GOOUT</code> und Speicherreste gleich <code>SB1511.bin</code></td>
+</tr>
+<tr>
+<td>Interpreter</td>
+<td>12FDh–614Dh; der Programmtext beginnt bei 614Bh</td>
+</tr>
+<tr>
+<td>Einschaltmeldung</td>
+<td><code>PASCAL interpreter SB-4515</code>, danach 39542 Bytes frei (64 KB RAM, im Emulator ermittelt)</td>
+</tr>
+<tr>
+<td>Schlüsselwörter</td>
+<td>Token 60h–E1h in <code>KWTAB</code>; 5 davon nicht erreichbar (<code>PROGRAM</code>, <code>TYPE</code>, <code>SET</code>, <code>PACKED</code>, <code>IN</code>)</td>
+</tr>
+<tr>
+<td>Datentypen</td>
+<td><code>INTEGER</code> (16 Bit), <code>REAL</code> (5 Bytes), <code>CHAR</code>, <code>BOOLEAN</code>, <code>ARRAY [..] OF</code>, <code>FILE OF</code></td>
+</tr>
+<tr>
+<td>REAL</td>
+<td>32-Bit-Mantisse, Bereich bis ±0.92233720E+19, Ausgabe mit 8 Stellen</td>
+</tr>
+<tr>
+<td>Unterprogramme</td>
+<td><code>PROCEDURE</code>, <code>FUNCTION</code>, Wert-Parameter, rekursiv aufrufbar</td>
+</tr>
+<tr>
+<td>Bezeichner</td>
+<td>bis 32 Zeichen (sonst Err 06)</td>
+</tr>
+<tr>
+<td>Fehlernummern</td>
+<td>01–55 (BCD), Texte zu 01–47 im Handbuch</td>
+</tr>
+</tbody>
+</table>
+<h2 id="was-es-nicht-gibt">Was es nicht gibt</h2>
+<p><code>PROGRAM</code>, <code>TYPE</code>, <code>SET</code>, <code>PACKED</code> und der Operator <code>IN</code> stehen in der Schlüsselworttabelle mit
+einem <code>*</code> am Anfang und sind damit nicht eingebbar. Es gibt keine Zeiger, keine Records, keine
+Strings als Typ (Texte nur in <code>WRITE</code>, <code>TRAN</code>, <code>MUSIC</code> …), keine Direktausführung von
+Anweisungen im Kommandomodus und kein <code>GOTO</code>. Der Operator <code>/</code> verlangt zwei <code>REAL</code>-Operanden;
+<code>WRITE</code> kann keine <code>BOOLEAN</code>-Werte ausgeben.</p>
+<h2 id="fassung-und-quellen">Fassung und Quellen</h2>
+<p>Das Abbild stammt von der FDOS-Diskette <code>disketten-2/DISK18</code> (Datei <code>PASCAL</code>, Typ OBJ) und ist
+die <strong>Kassettenfassung</strong>: vorn steht der Monitor SB-1511, wie bei BASIC SB-5510. Das Handbuch liegt
+als <code>sb4515/Sharp_MZ-80B_PASCAL_Language_Manual_SB4515.pdf</code> bei.</p>
+<table>
+<thead>
+<tr>
+<th>Datei</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sb4515/SB4515.asm</code>, <code>.lst</code></td>
+<td>Quelle und Listing, bytegleich zu <code>PASCAL.OBJ</code></td>
+</tr>
+<tr>
+<td><code>sb4515/sb4515_cfg.py</code></td>
+<td>Namen, Beschreibungen und Analyse-Angaben, aus denen die Quelle erzeugt wird</td>
+</tr>
+<tr>
+<td><code>sb4515/SB4515.mzf</code></td>
+<td>Kassettendatei („PASCAL SB-4515“, Laden und Start bei 0000h)</td>
+</tr>
+<tr>
+<td><code>docs/BEFEHLE_SB4515.md</code></td>
+<td>Befehlsreferenz (auch als <a href="befehle.html">Seite</a>)</td>
+</tr>
+<tr>
+<td><code>tools/test_sb4515_run.py</code></td>
+<td>Programmlauf im Emulator als Test</td>
+</tr>
+</tbody>
+</table>
+<h2 id="benennung">Benennung</h2>
+<p>Alle Namen stammen aus der Analyse; die Datei enthält keine Symbole. Die Monitornamen sind die von
+Sharp (aus <code>MONEQU</code>). Im Interpreter gilt:</p>
+<table>
+<thead>
+<tr>
+<th>Präfix</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PCMD_x</code></td>
+<td>Editorkommando <code>x</code></td>
+</tr>
+<tr>
+<td><code>SYN_…</code></td>
+<td>Prüflauf (Syntax, Typen) zu einem Schlüsselwort</td>
+</tr>
+<tr>
+<td><code>RUN_…</code></td>
+<td>Ausführung zu einem Schlüsselwort</td>
+</tr>
+<tr>
+<td><code>ERR_nn</code></td>
+<td>Fehler nn</td>
+</tr>
+<tr>
+<td><code>F…</code></td>
+<td>Gleitkommaroutine (<code>FADD</code>, <code>FSIN</code> …)</td>
+</tr>
+<tr>
+<td><code>SM_…</code></td>
+<td>Befehl mit Operand, der zur Laufzeit geändert wird (Operand = Name+1)</td>
+</tr>
+<tr>
+<td><code>GR_…</code>, <code>PRT_…</code>, <code>CMT_…</code>, <code>TRAN_…</code></td>
+<td>Grafik, Drucker, Kassette, Farbterminal</td>
+</tr>
+<tr>
+<td><code>Lnnnn</code>, <code>Dnnnn</code></td>
+<td>automatisch vergebene Namen für Sprungziele innerhalb von Routinen und für Konstanten</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="next" href="architektur.html">Aufbau und Speicher →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

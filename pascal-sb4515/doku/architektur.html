@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aufbau und Speicher – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li class="cur"><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#vom-laden-bis-ready">Vom Laden bis „Ready.“</a></li><li><a href="#speicherkarte">Speicherkarte</a></li><li><a href="#arbeitsspeicher-unter-stack-top">Arbeitsspeicher unter STACK_TOP</a></li><li><a href="#eingriffe-in-den-monitor">Eingriffe in den Monitor</a></li></ul></aside>
+<h1 id="aufbau-und-speicher">Aufbau und Speicher</h1>
+<h2 id="vom-laden-bis-ready">Vom Laden bis „Ready.“</h2>
+<p>Die Kassettendatei hat Lade- und Startadresse 0000h; nach dem Laden über den IPL liegt das Abbild
+ab 0000h, und es läuft zuerst der Kaltstart des Monitors SB-1511 (Initialisierung, Uhr über
+<code>TIMST</code>). Am Ende springt der Monitor über <code>GOOUT</code> (00AEh) in seine
+Kommandoschleife – im PASCAL-Abbild steht dort aber <code>JP PAS_BOOT</code>.</p>
+<ol>
+<li><code>PAS_BOOT</code> (12FDh) springt nach <code>PAS_INIT</code> (61D9h). Dieser Code liegt hinter dem
+   Interpreter im Bereich des Programmtexts und wird nur einmal gebraucht.</li>
+<li><code>PAS_INIT</code> kopiert <code>FKEY_DEF</code> (Vorgaben „begin“, „procedure“, „function“, „:=“, „integer;“ …)
+   in die Funktionstastenbelegung <code>FARE</code> (1200h) und schreibt 01h nach 00AEh: Aus <code>JP PAS_BOOT</code>
+   wird <code>LD BC,12FDh</code>. Danach führt <code>GOOUT</code> wieder in die Monitor-Kommandoschleife, so wie es das
+   Kommando <code>Q/</code> braucht.</li>
+<li><code>PAS_START</code> (1300h) sucht das RAM-Ende: ab 2FFFh in Schritten von 1000h AAh und 55h
+   schreiben und zurücklesen. Das Ergebnis (bei 64 KB FFFFh) wird Stapelobergrenze <code>STACK_TOP</code> und
+   Operand von <code>RAM_END</code> (für <code>E$</code>). Uhr auf 0, weiter nach <code>PAS_COLD</code>.</li>
+<li><code>PAS_COLD</code> (187Ch) setzt den Stapel, schickt <code>J,$13F8</code> an ein angeschlossenes
+   Farbterminal (<code>TRAN_INIT</code>) und kommt nach <code>PAS_NEW</code> (188Eh): Programm löschen, Puffer
+   anlegen (<code>SET_BUFFERS</code>), Kopfmeldung zwischen zwei Linien aus Zeichen 90h, freien Speicher
+   ausgeben.</li>
+<li><code>PAS_READY</code> (1334h) setzt Ausgabe und Stapel zurück, leitet <code>GETL</code> um
+   (<code>GETL_PATCH</code>, siehe <a href="editor.html">Editor</a>), gibt „Ready.“ aus und läuft in <code>CMD_LOOP</code>
+   (1374h). Dorthin kehren auch Fehler, BREAK und das Programmende zurück.</li>
+</ol>
+<h2 id="speicherkarte">Speicherkarte</h2>
+<table class="memmap">
+<tr><th>Bereich</th><th>Inhalt</th></tr>
+<tr><td>0000h–129Fh</td><td>Monitor SB-1511 mit seinem Arbeitsspeicher; FARE (1200h) hält die Funktionstastentexte</td></tr>
+<tr><td>12A0h–12FCh</td><td>FFh-Füllung; die Funktionstastentexte dürfen bis 12FFh reichen (<code>RUN_FKEY</code>)</td></tr>
+<tr><td>12FDh–1A6Ah</td><td>Einsprung, Start, Editor, Kommandos, Kassette (Programme), Hilfsroutinen</td></tr>
+<tr><td>1A6Bh–1C5Eh</td><td>Schlüsselworttabelle <code>KWTAB</code></td></tr>
+<tr><td>1C5Eh–2003h</td><td>Tokenizer, Lister, Zeilenverwaltung</td></tr>
+<tr><td>2003h–2CA8h</td><td>Laufzeit: KEY/PEEK/POKE …, Zahlenumwandlung, READ/WRITE, Datendateien, MUSIC</td></tr>
+<tr><td>2CA8h–35A1h</td><td>SIN/COS/TAN, Farbterminal, Funktionen, Grafik, Drucker, Hardcopy</td></tr>
+<tr><td>35A1h–3B80h</td><td>Systemkommandos, Prüfung und Ausführung der Grafik- und Sonderbefehle</td></tr>
+<tr><td>3B80h–4687h</td><td>Prüflauf: Deklarationen, Symboltabellen, Anweisungen, Ausdrücke; Sprungtabellen <code>SYN_TAB…</code></td></tr>
+<tr><td>4687h–4803h</td><td>Fehlereinsprünge, Fehlerausgabe</td></tr>
+<tr><td>4803h–5680h</td><td>Gleitkomma: Grundrechenarten, Umwandlung, Funktionen, Konstanten</td></tr>
+<tr><td>5680h–614Bh</td><td>Ausführung: Variablen, Anweisungen, Ausdrücke, Operatoren, Ganzzahl-Arithmetik; Sprungtabellen <code>RUN_TAB…</code></td></tr>
+<tr><td>ab 614Bh</td><td>Programmtext (<code>TXT_START</code> … <code>TXT_END</code>); beim Laden stehen hier <code>FKEY_DEF</code> und <code>PAS_INIT</code></td></tr>
+</table>
+
+<p>Im Code liegen außerdem Puffer und Variablen: <code>NUMBUF</code> (26A2h) und <code>LINEBUF</code> (26DFh)
+für Zahlen und Zeilen, <code>FILEBUF</code> (2A5Fh, 256 Bytes) für Datendateien, <code>MUSIC_BUF</code>, die
+Hardcopy-Puffer und die Zeiger <code>RT_AREA0</code> … <code>RT_AREA3</code>, <code>RT_SP</code> (467Dh).</p>
+<h2 id="arbeitsspeicher-unter-stack-top">Arbeitsspeicher unter STACK_TOP</h2>
+<p><code>SET_BUFFERS</code> legt von oben nach unten an:</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Lage</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>STACK_TOP</code></td>
+<td>RAM-Ende (bzw. <code>E$</code>-Grenze)</td>
+<td>Prozessorstapel wächst von hier nach unten</td>
+</tr>
+<tr>
+<td><code>WORKBUF</code></td>
+<td>STACK_TOP − 320h</td>
+<td>Arbeitspuffer: tokenisierte Eingabezeile, Bezeichner im Prüflauf</td>
+</tr>
+<tr>
+<td><code>INBUF</code></td>
+<td>WORKBUF − 56h</td>
+<td>Eingabezeile; zur Laufzeit Basis der globalen Variablen (sie liegen darunter)</td>
+</tr>
+<tr>
+<td><code>TXT_LIMIT</code></td>
+<td>INBUF − C8h</td>
+<td>Obergrenze des Programmtexts</td>
+</tr>
+</tbody>
+</table>
+<p>Der freie Speicher („nnnnn Bytes“, Kommando <code>M</code>) ist <code>TXT_LIMIT − TXT_END</code>; bei 64 KB RAM und
+leerem Programm sind das 39542 Bytes.</p>
+<p>Zur Laufzeit liegen hinter dem Programmtext die Symboltabellen und darunter (von <code>INBUF</code> abwärts)
+die globalen Variablen; der Laufzeitstapel <code>RT_SP</code> wächst nach unten auf sie zu. <code>RUN_BEGIN</code>
+verlangt mindestens 100h Bytes Abstand zwischen <code>RT_AREA0</code> und <code>RT_SP</code>, sonst Err 39. Details
+unter <a href="pruefung.html">Prüflauf</a> und <a href="ausfuehrung.html">Ausführung</a>.</p>
+<h2 id="eingriffe-in-den-monitor">Eingriffe in den Monitor</h2>
+<table>
+<thead>
+<tr>
+<th>Stelle</th>
+<th>Änderung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GOOUT</code> (00AEh)</td>
+<td>im Abbild <code>JP PAS_BOOT</code>; <code>PAS_INIT</code> macht daraus <code>LD BC,12FDh</code></td>
+</tr>
+<tr>
+<td><code>GETL_ENTER</code>, <code>GETL_DONE</code></td>
+<td><code>GETL_PATCH</code> lässt <code>GETL</code> die ganze Bildschirmzeile ab Zeilenanfang (<code>??TOL</code>) liefern; <code>GETL_SCREEN</code> (READ) setzt eigene Werte</td>
+</tr>
+<tr>
+<td>FARE (1200h)</td>
+<td>Funktionstasten mit PASCAL-Wörtern vorbelegt</td>
+</tr>
+<tr>
+<td><code>KNUMBS</code></td>
+<td>Grenze der Eingabelänge für <code>GETL</code>: 50h im Editor, A0h bei READ</td>
+</tr>
+</tbody>
+</table>
+<p>Ansonsten benutzt der Interpreter die Monitorroutinen (<code>PRNT</code>, <code>MSG</code>, <code>GETL</code>, <code>GETKY</code>, <code>BRKEY</code>,
+<code>RDINF</code>/<code>RDDAT</code>/<code>WRINF</code>/<code>WRDAT</code>, <code>MELDY</code>, <code>XTEMP</code> …) unverändert.</p>
+<footer><div class="pn"><a class="prev" href="index.html">← Überblick</a><a class="next" href="editor.html">Editor und Programmtext →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

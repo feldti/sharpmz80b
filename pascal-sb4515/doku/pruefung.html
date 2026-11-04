@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prüflauf und Symboltabellen – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li class="cur"><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#lesen-des-texts">Lesen des Texts</a></li><li><a href="#programmaufbau">Programmaufbau</a></li><li><a href="#typen">Typen</a></li><li><a href="#symboltabellen">Symboltabellen</a></li><li><a href="#bezeichner-aufloesen">Bezeichner auflösen</a></li><li><a href="#anweisungen-und-ausdruecke">Anweisungen und Ausdrücke</a></li></ul></aside>
+<h1 id="prueflauf-und-symboltabellen">Prüflauf und Symboltabellen</h1>
+<p><code>G</code> startet nicht sofort das Programm. <code>PCMD_G</code> (3B80h) liest den ganzen Text einmal durch,
+prüft Deklarationen, Syntax und Typen, legt die Symboltabellen an und trägt dabei Adressen und
+Sprungziele in den Tokentext ein. Erst wenn der Hauptblock mit <code>END.</code> endet, geht es nach
+<code>RUN_START</code> (5680h). Ein Fehler im Prüflauf wird mit der Zeilennummer gemeldet:</p>
+<pre><code>*Err 19* Line   2.
+</code></pre>
+<p>Da der Prüflauf vor jedem <code>G</code> neu läuft, dürfen Änderungen am Text die eingetragenen Werte
+ungültig machen – sie werden ohnehin neu berechnet.</p>
+<h2 id="lesen-des-texts">Lesen des Texts</h2>
+<p><code>SYN_GETTOK</code> (3CFEh) liefert das nächste Zeichen oder Token. Es überspringt Kommentare
+(<code>SYN_SKIPCMT</code> trägt dabei den Verweis auf ihr Ende ein), zählt bei jedem 0Dh <code>LINE_NO</code> hoch und
+übergeht das Einrückungsbyte. Läuft der Text ab, bevor das Programm vollständig ist, folgt Err 01.
+<code>SCAN_TOKEN</code> sucht nur das nächste Schlüsselwort (für den Vorlauf über Unterprogramme);
+<code>PUSH_LINENO</code>/<code>POP_LINENO</code> und <code>CALL_KEEPLINE</code> retten <code>LINE_NO</code>, wenn ein Teil des Texts
+mehrfach gelesen wird.</p>
+<h2 id="programmaufbau">Programmaufbau</h2>
+<pre><code>[VAR Name, Name : Typ; ...]
+[PROCEDURE Name(Parameter); Block;]   (beliebig viele, auch FUNCTION Name(...): Typ;)
+BEGIN Anweisung; ... END.
+</code></pre>
+<ul>
+<li><code>SYN_DECLS</code> / <code>SYN_VAR</code> (3DD9h): „<code>Name, Name : Typ ;</code>“ bis kein Bezeichner mehr folgt.
+  Typen sind <code>REAL</code>, <code>INTEGER</code>, <code>CHAR</code>, <code>BOOLEAN</code>, <code>ARRAY [n, m ...] OF Typ</code>
+  (<code>SYN_ARRAYTYPE</code>, Grenzen als ganzzahlige Konstanten) und <code>FILE OF Typ</code>.</li>
+<li><code>DECL_PROC</code> / <code>DECL_FUNC</code> tragen Prozeduren (Art E4h) und Funktionen (Art E5h) ein;
+  <code>SYN_PARAMS</code> liest die formalen Parameter, <code>SYN_SUBBODY</code> prüft den Rumpf mit lokalen
+  Deklarationen.</li>
+<li><code>MAIN_BLOCK</code> (3C96h) prüft den Hauptblock; folgt der Punkt, beginnt die Ausführung.</li>
+</ul>
+<h2 id="typen">Typen</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Code</th>
+<th>Typ</th>
+<th>Token</th>
+<th style="text-align: right;">Größe auf dem Laufzeitstapel (mit Typbyte)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">0</td>
+<td><code>REAL</code></td>
+<td>63h</td>
+<td style="text-align: right;">6</td>
+</tr>
+<tr>
+<td style="text-align: right;">1</td>
+<td><code>INTEGER</code></td>
+<td>64h</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td><code>CHAR</code></td>
+<td>65h</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td><code>BOOLEAN</code></td>
+<td>66h</td>
+<td style="text-align: right;">2</td>
+</tr>
+</tbody>
+</table>
+<p>Der Typcode ist das Token minus 63h (<code>TYPE_CODE</code>); <code>TYPE_SIZE</code> (5866h) liefert die Größe.
+Bit 6 kennzeichnet Felder, Bit 5 FILE-Variablen. <code>TYPE_MATCH</code> (45A8h) vergleicht zwei
+Typcodes und meldet Err 17, wenn sie verschieden sind. Es gibt <strong>keine automatische Umwandlung</strong>
+von <code>INTEGER</code> nach <code>REAL</code>: dafür ist <code>FLOAT(</code> da, zurück geht es mit <code>TRUNC(</code>.</p>
+<h2 id="symboltabellen">Symboltabellen</h2>
+<p>Jeder Eintrag besteht aus dem Namen (letztes Zeichen mit Bit 7) und fünf Bytes. Globale Namen
+stehen ab <code>RT_AREA0</code> direkt hinter dem Programmtext, Unterprogramme ab <code>RT_AREA1</code>, lokale Namen
+werden beim Prüfen eines Rumpfs dahinter angelegt (<code>SYM_LOCAL</code>). Die Bereiche liegen
+hintereinander; <code>SYM_MAKEROOM</code> und <code>SYM_GROW1</code>–<code>SYM_GROW3</code> verschieben sie beim Einfügen. Reicht
+der Platz bis <code>WORKBUF</code> nicht, folgt Err 13.</p>
+<p>Im Beispiel aus dem <a href="editor.html#beispiel">Editor</a> (<code>var i,s:integer;</code>) steht nach dem Prüflauf:</p>
+<pre><code>C9  01  5B 61  FD FF     I   INTEGER, Deklaration bei 615Bh, Abstand -3
+D3  01  5B 61  FA FF     S   INTEGER, Deklaration bei 615Bh, Abstand -6
+00                       Ende der globalen Tabelle
+</code></pre>
+<p>Die globalen Variablen liegen zur Laufzeit unter <code>INBUF</code>, in der Reihenfolge der Deklaration,
+jede mit ihrer Größe samt Typbyte.</p>
+<p><code>DECLARE</code> (3D55h) trägt einen Namen ein (schon vorhanden: Err 02), <code>SYM_FIND</code>
+(3D7Fh) sucht ihn. Welche Tabelle gemeint ist, steht in den Operanden von <code>SM_SYMTAB</code>,
+<code>SM_SYMTAB_IY</code> und <code>SM_SYMGROW</code>, die <code>PCMD_G</code> und <code>SYM_LOCAL</code> umstellen.</p>
+<h2 id="bezeichner-aufloesen">Bezeichner auflösen</h2>
+<p>Trifft der Prüflauf auf einen Bezeichner, sucht <code>RESOLVE_IDENT</code> (45C5h) erst lokal,
+dann global und schreibt das Token davor um: <strong>E3h</strong> für lokale, <strong>E2h</strong> für globale Variablen,
+dahinter Typ und Abstand. Bei Feldern prüft <code>SYN_INDEX</code> die Indexliste (Anzahl der Indizes gleich
+der Dimension, sonst Err 29). Unbekannte Namen ergeben Err 27.</p>
+<h2 id="anweisungen-und-ausdruecke">Anweisungen und Ausdrücke</h2>
+<p><code>SYN_STATEMENT</code> (40CAh) unterscheidet Zuweisung bzw. Prozeduraufruf (Bezeichner),
+die Steueranweisungen 69h–6Eh (<code>SYN_TAB69</code>) und die eingebauten Prozeduren 8Fh–B2h
+(<code>SYN_TAB8F</code>). Bei <code>IF</code>, <code>WHILE</code>, <code>FOR</code> und <code>CASE</code> prüft <code>SYN_LINKSTMT</code> die abhängige Anweisung
+und schreibt die Adresse ihres Endes in die zwei Bytes hinter <code>THEN</code>, <code>ELSE</code> bzw. <code>DO</code>. Die
+Ausführung springt dann ohne Suchen über nicht ausgeführte Zweige.</p>
+<p>Ausdrücke prüfen <code>SYN_EXPR</code> → <code>SYN_SIMPLE</code> → <code>SYN_TERM</code> → <code>SYN_FACTOR</code> mit den üblichen
+Rangstufen:</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Operatoren</th>
+<th>Bedingung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vergleich</td>
+<td><code>&lt;</code> <code>&lt;=</code> <code>=</code> <code>&gt;=</code> <code>&gt;</code> <code>&lt;&gt;</code></td>
+<td>gleiche Typen, Ergebnis <code>BOOLEAN</code></td>
+</tr>
+<tr>
+<td>Addition</td>
+<td><code>+</code> <code>-</code> <code>OR</code> <code>XOR</code></td>
+<td><code>OR</code>/<code>XOR</code> auf <code>BOOLEAN</code></td>
+</tr>
+<tr>
+<td>Multiplikation</td>
+<td><code>*</code> <code>AND</code> <code>DIV</code> <code>MOD</code> <code>/</code></td>
+<td><code>DIV</code>/<code>MOD</code> nur <code>INTEGER</code>, <code>/</code> nur <code>REAL</code></td>
+</tr>
+<tr>
+<td>Faktor</td>
+<td><code>( … )</code>, <code>NOT</code>, Konstante, Variable, Funktion</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Die Funktionen ab B3h prüft <code>SYN_TABB3</code> (z. B. <code>SYN_FN_REAL</code> für <code>SIN(</code> … <code>SQRT(</code>).</p>
+<footer><div class="pn"><a class="prev" href="editor.html">← Editor und Programmtext</a><a class="next" href="ausfuehrung.html">Ausführung →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

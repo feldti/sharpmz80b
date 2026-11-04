@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ein-/Ausgabe, Grafik, Drucker – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li class="cur"><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#read-und-write">READ und WRITE</a></li><li><a href="#datendateien-auf-kassette">Datendateien auf Kassette</a></li><li><a href="#grafik">Grafik</a></li><li><a href="#bildschirm">Bildschirm</a></li><li><a href="#drucker">Drucker</a></li><li><a href="#farbterminal">Farbterminal</a></li><li><a href="#musik-tasten-speicher-und-ports">Musik, Tasten, Speicher und Ports</a></li></ul></aside>
+<h1 id="ein-ausgabe-grafik-drucker">Ein-/Ausgabe, Grafik, Drucker</h1>
+<p>Bildschirm und Tastatur laufen über den Monitor SB-1511 (<code>PRNT</code>, <code>MSG</code>, <code>GETL</code>, <code>GETKY</code>,
+<code>BRKEY</code>). <code>PR_CHAR</code> (199Eh) gibt ein Zeichen aus: ist <code>OUT_PRT</code> gesetzt (Kommando <code>H</code>,
+<code>PWRITE</code>), geht es an den Drucker (<code>PRT_OUT</code>), sonst an <code>PRNT</code>.</p>
+<h2 id="read-und-write">READ und WRITE</h2>
+<p><strong>READ</strong> von der Tastatur (<code>READ_KBD</code>, 2309h) gibt „?“ aus und liest die Zeile mit
+<code>GETL_SCREEN</code> vom Bildschirm. Die Werte werden durch Kommas getrennt nacheinander den Variablen
+zugewiesen; <code>READ_NUMBER</code> erkennt Vorzeichen, Dezimalpunkt und Exponent. Passt die Eingabe nicht
+(z. B. Text für eine Zahl), fragt READ mit „?“ erneut; eine zu große Ganzzahl ergibt dagegen
+Err 13. <code>READLN</code> liest danach bis zum Zeilenende.</p>
+<p><strong>WRITE</strong> (<code>WRITE_ITEMS</code>, 24A5h) gibt Texte und Ausdrücke aus, auf Wunsch mit
+<code>:Breite</code> (bis 20) und <code>:Nachkommastellen</code> (bis 9). Ohne Format sind Zahlen und Zeichen
+15 Stellen breit, rechtsbündig. Passt eine Zahl nicht in die Breite, folgt Err 36; Texte
+haben keine Breitenangabe (Err 08). <code>BOOLEAN</code>
+kann nicht ausgegeben werden (Err 04). Die Ausgabe von Texten geht über den Operanden von
+<code>SM_WROUT</code>: <code>MSG</code> für den Bildschirm, <code>PRT_TEXT</code> für den Drucker oder die Dateiroutinen.</p>
+<table>
+<thead>
+<tr>
+<th>Anweisung</th>
+<th>Ziel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WRITE(</code>, <code>WRITELN(</code></td>
+<td>Bildschirm oder Datei (erstes Argument FILE-Variable)</td>
+</tr>
+<tr>
+<td><code>PWRITE(</code>, <code>PWRITELN(</code></td>
+<td>Drucker</td>
+</tr>
+<tr>
+<td><code>READ(</code>, <code>READLN(</code></td>
+<td>Tastatur oder Datei</td>
+</tr>
+</tbody>
+</table>
+<h2 id="datendateien-auf-kassette">Datendateien auf Kassette</h2>
+<p>Eine Datei wird mit <code>FNAME(Name)</code> benannt und geöffnet (<code>RUN_FNAME</code>; ohne Text fragt
+<code>ASK_FILENAME</code> mit „Filename?“), mit <code>READ</code>/<code>WRITE</code> und einer FILE-Variablen als erstem
+Argument gelesen oder geschrieben und mit <code>CLOSE</code> abgeschlossen. Die Daten gehen in Blöcken zu
+100h Bytes über <code>FILEBUF</code> (2A5Fh) als Kassettendatei vom <strong>Typ 03h</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FILE_FIND</code></td>
+<td>Datei vom Typ 03h mit dem Namen aus <code>FNAME</code> suchen, „Found“/„Loading“</td>
+</tr>
+<tr>
+<td><code>CMT_SETBLK</code></td>
+<td>Kassettenkopf auf einen Block von 100h Bytes ab <code>FILEBUF</code> einstellen</td>
+</tr>
+<tr>
+<td><code>CMT_READBLK</code>, <code>CMT_WRITEBLK</code></td>
+<td>Block lesen bzw. schreiben (<code>RDDAT</code>/<code>WRDAT</code> über <code>SM_CMT_IO</code>)</td>
+</tr>
+<tr>
+<td><code>FILE_ITEM</code></td>
+<td>einen Wert im Puffer lesen oder ablegen</td>
+</tr>
+<tr>
+<td><code>RUN_CLOSE</code></td>
+<td>letzten Block schreiben; läuft auch am Programmende</td>
+</tr>
+</tbody>
+</table>
+<p>Bei einem Lese- oder Schreibfehler während des Programms erscheint „Err 34<em> Run</em>“ bzw.
+„Err 35<em> Run</em>“ und <code>** Push key [ C)ontinue E)ditor ]</code>: <code>C</code> wiederholt, <code>E</code> kehrt zum Editor
+zurück. Programme (Typ A0h) speichern und laden die Editorkommandos <code>S</code>, <code>A</code>, <code>V</code>.</p>
+<h2 id="grafik">Grafik</h2>
+<p>Die Grafik braucht die Grafik-RAM-Karte des MZ-80B. Das Grafik-RAM wird ab E000h eingeblendet
+(Port E8h), gesteuert über Port F4h.</p>
+<table>
+<thead>
+<tr>
+<th>Anweisung</th>
+<th>Routine</th>
+<th>Umsetzung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GRAPH(</code></td>
+<td><code>RUN_GRAPH</code></td>
+<td>Ein-/Ausgabeebene wählen, löschen (<code>GR_CLEAR</code>), füllen</td>
+</tr>
+<tr>
+<td><code>GSET(x,y)</code>, <code>GRSET(x,y)</code></td>
+<td><code>GR_SET</code>, <code>GR_RESET</code></td>
+<td>Punkt setzen/löschen über <code>GR_PLOT</code></td>
+</tr>
+<tr>
+<td><code>LINE(</code>, <code>BLINE(</code></td>
+<td><code>GR_LINE</code></td>
+<td>Linienzug, Punktroutine über <code>SM_GR_PLOTFN</code></td>
+</tr>
+<tr>
+<td><code>POSITION(x,y)</code></td>
+<td><code>RUN_POSITION</code></td>
+<td>Positionszeiger setzen (<code>POSH</code>, <code>POSV</code> lesen ihn)</td>
+</tr>
+<tr>
+<td><code>PATTERN(n, Text)</code></td>
+<td><code>GR_PATTERN</code></td>
+<td>Punktmuster byteweise schreiben</td>
+</tr>
+<tr>
+<td><code>POINT(x,y)</code></td>
+<td><code>GR_POINT</code></td>
+<td>Punkt abfragen</td>
+</tr>
+</tbody>
+</table>
+<p><code>GR_PLOT</code> (30C7h) berechnet mit <code>GR_BYTEADDR</code> die Byteadresse und führt einen Bitbefehl
+aus, den es in <code>SM_GR_BITOP</code> einträgt (<code>SET</code>, <code>RES</code> oder <code>BIT</code>). Koordinaten nimmt <code>RT_POPY</code>
+vom Stapel; erlaubt sind −16384 bis 16383, sonst Err 13.</p>
+<h2 id="bildschirm">Bildschirm</h2>
+<p><code>RANGE(</code> stellt Rollbereich (<code>S</code>), 40/80 Zeichen (<code>C</code>) und inverse/normale Darstellung
+(<code>R</code>/<code>N</code>) ein, wie das Editorkommando <code>R</code>. <code>CURSOR(x,y)</code> setzt den Cursor, <code>CSRH</code>/<code>CSRV</code>
+lesen ihn, <code>COUT(c)</code> schreibt ein Zeichen an die Cursorposition, <code>CIN</code> liest es.</p>
+<h2 id="drucker">Drucker</h2>
+<p>Der Drucker hängt an den Ports FEh (Strobe/Status) und FFh (Daten). <code>PRT_OUT</code> (33DFh)
+wartet auf Bereitschaft (<code>PRT_WAIT</code>, sonst Err 42), legt das Zeichen an und gibt den Strobe.
+<code>PRT_STATUS</code> meldet Papierende (Err 43) und Störungen (Err 44). Steuerfolgen beginnen mit ESC
+(<code>PRT_ESC</code>). <code>IMAGE(</code> druckt Punktmuster, <code>COPY(n)</code> eine Hardcopy der Text- oder Grafikanzeige
+(<code>PRT_COPY</code>, Puffer <code>HC_BUF</code>, <code>HC_LINE</code>).</p>
+<h2 id="farbterminal">Farbterminal</h2>
+<p><code>TRAN(</code>, <code>REQTR</code>, <code>SYRET</code> und <code>SYRET2</code> steuern laut Handbuch das <strong>Farbsteuersystem</strong>
+(Farbterminal mit Kassette der Reihe SB-3000). Die Bytes gehen mit Handshake über die Ports EEh
+(Daten) und EFh (Status/Steuerung): <code>TRAN_BYTE</code> sendet, <code>REQTR</code> liest ein Byte. <code>SYRET</code>/<code>SYRET2</code>
+setzen das Terminal zurück und schicken ihm Monitorkommandos wie <code>J,$13A8</code> (<code>SYRET_CMD1</code> …).
+Auch der Kaltstart sendet <code>J,$13F8</code> (<code>TRAN_INIT</code>).</p>
+<h2 id="musik-tasten-speicher-und-ports">Musik, Tasten, Speicher und Ports</h2>
+<table>
+<thead>
+<tr>
+<th>Anweisung/Funktion</th>
+<th>Umsetzung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MUSIC(Text)</code></td>
+<td><code>MUSIC_TEXT</code> zerlegt den Text, <code>MUSIC_PLAY</code> spielt über <code>MELDY</code></td>
+</tr>
+<tr>
+<td><code>TEMPO(n)</code></td>
+<td>n = 1–7 über <code>XTEMP</code></td>
+</tr>
+<tr>
+<td><code>FKEY(n, Text)</code></td>
+<td><code>RUN_FKEY</code>: Text der Funktionstaste n (1–20) in FARE ersetzen; alle Texte zusammen dürfen bis 12FFh reichen (Err 39)</td>
+</tr>
+<tr>
+<td><code>KEY</code></td>
+<td>Taste lesen; eine gehaltene Taste nur einmal (<code>SM_LASTKEY</code>)</td>
+</tr>
+<tr>
+<td><code>PEEK(a)</code>, <code>POKE(c,a)</code></td>
+<td>Speicher lesen/schreiben (<code>CHAR</code>)</td>
+</tr>
+<tr>
+<td><code>INPUT(p)</code>, <code>OUTPUT(c,p)</code></td>
+<td>Port lesen/schreiben</td>
+</tr>
+<tr>
+<td><code>CALL(a) v1, v2</code></td>
+<td>Maschinenprogramm bei a aufrufen, v1 in HL, v2 in DE (<code>SM_USRCALL</code>)</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="befehle.html">← Befehlsreferenz</a><a class="next" href="fehler.html">Fehler →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Werkzeuge und Tests – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li class="cur"><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#make-ziele">Make-Ziele</a></li><li><a href="#programme">Programme</a></li><li><a href="#der-programmlauf-im-emulator">Der Programmlauf im Emulator</a></li></ul></aside>
+<h1 id="werkzeuge-und-tests">Werkzeuge und Tests</h1>
+<h2 id="make-ziele">Make-Ziele</h2>
+<table>
+<thead>
+<tr>
+<th>Ziel</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>make</code></td>
+<td>Binärabbilder nach <code>build/</code>, Listings, Referenzen, <code>sb4515/SB4515.mzf</code></td>
+</tr>
+<tr>
+<td><code>make check</code></td>
+<td><code>build/SB4515.bin</code> und die Daten der MZF-Datei gegen <code>sb4515/PASCAL.OBJ</code></td>
+</tr>
+<tr>
+<td><code>make test</code></td>
+<td>u. a. <code>tools/test_sb4515_run.py</code> (Programmlauf im Emulator)</td>
+</tr>
+<tr>
+<td><code>make reloc-check</code></td>
+<td>Verschiebbarkeit, mit Programmlauf jeder verschobenen Fassung</td>
+</tr>
+<tr>
+<td><code>make ref</code></td>
+<td><code>docs/BEFEHLE_SB4515.md</code></td>
+</tr>
+<tr>
+<td><code>make doku4515</code></td>
+<td>diese Dokumentation nach <code>sb4515/doku/</code></td>
+</tr>
+<tr>
+<td><code>make sb4515-src</code></td>
+<td><code>sb4515/SB4515.asm</code> aus <code>PASCAL.OBJ</code> und der Konfiguration neu erzeugen</td>
+</tr>
+</tbody>
+</table>
+<h2 id="programme">Programme</h2>
+<table>
+<thead>
+<tr>
+<th>Datei</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/dis4515.py</code></td>
+<td>Analyse: Code ab den Einsprüngen und Sprungtabellen verfolgen, Daten erkennen, den Monitorteil aus <code>SB1511.asm</code> übernehmen</td>
+</tr>
+<tr>
+<td><code>tools/emit4515.py</code></td>
+<td>Ausgabe der Quelle: Labels, Symbole statt Zahlen, Gleitkommakonstanten mit Dezimalwert, Schlüsselworttabelle mit Token</td>
+</tr>
+<tr>
+<td><code>tools/mklst.py</code></td>
+<td>Listing (<code>.lst</code>) zu einer pasmo-Quelle</td>
+</tr>
+<tr>
+<td><code>tools/test_sb4515_run.py</code></td>
+<td>Programmlauf im Emulator</td>
+</tr>
+<tr>
+<td><code>tools/reloccheck.py</code></td>
+<td>Verschiebbarkeit prüfen</td>
+</tr>
+<tr>
+<td><code>tools/mkref4515.py</code></td>
+<td>Befehlsreferenz</td>
+</tr>
+<tr>
+<td><code>tools/mkdoku4515.py</code></td>
+<td>diese Dokumentation</td>
+</tr>
+<tr>
+<td><code>tools/mkmzf.py</code></td>
+<td>MZF-Datei aus einem Binärabbild</td>
+</tr>
+</tbody>
+</table>
+<h2 id="der-programmlauf-im-emulator">Der Programmlauf im Emulator</h2>
+<p><code>tools/test_sb4515_run.py</code> startet den Interpreter in <code>z88dk-ticks</code> bei <code>PAS_NEW</code> mit
+Stapelobergrenze C000h. Der Code ist der des Originals; umgeleitet sind nur die Geräte:</p>
+<table>
+<thead>
+<tr>
+<th>Monitorroutine</th>
+<th>Ersatz</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PRNT</code>, <code>?DSP</code>, <code>NL</code>, <code>LETNL</code></td>
+<td>Ausgabe in einen Puffer; Spalte und <code>DSPXY</code> werden mitgeführt</td>
+</tr>
+<tr>
+<td><code>GETL</code></td>
+<td>nächste Zeile eines Skripts, mit dem schon ausgegebenen Zeilenanfang davor (wie das Lesen einer Bildschirmzeile)</td>
+</tr>
+<tr>
+<td><code>BRKEY</code></td>
+<td>nie BREAK</td>
+</tr>
+<tr>
+<td><code>GETKY</code>, <code>NOKKEY</code>, <code>BELL</code></td>
+<td>keine Taste / sofort zurück</td>
+</tr>
+</tbody>
+</table>
+<p>Die Sitzungen geben Programme über den Editor ein, führen sie mit <code>G</code> aus und vergleichen die
+Ausgabe: INTEGER, CHAR und BOOLEAN, Gleitkommafunktionen (mit Python nachgerechnet), READ mit
+Fehleingabe, WRITE mit Format, Listing und Fehlermeldungen im Prüflauf und zur Laufzeit.</p>
+<p>Nicht nachgebildet sind der Zeitgeber 8253 (<code>TIMST</code> wartet auf ihn), Kassette, Drucker, Grafik
+und das Farbterminal; diese Teile sind nur durch Lesen des Codes und das Handbuch belegt. Den
+Start der MZF-Datei vom Monitor-Kaltstart bis zur Kommandoschleife kann man im Emulator nur mit
+übersprungenem <code>TIMST</code> nachvollziehen.</p>
+<footer><div class="pn"><a class="prev" href="erweitern.html">← Ändern und Verschieben</a><a class="next" href="routinen.html">Routinenverzeichnis →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

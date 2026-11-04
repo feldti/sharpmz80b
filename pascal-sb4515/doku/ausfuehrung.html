@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ausführung – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li class="cur"><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#start">Start</a></li><li><a href="#text-lesen">Text lesen</a></li><li><a href="#laufzeitstapel">Laufzeitstapel</a></li><li><a href="#ausdruecke">Ausdrücke</a></li><li><a href="#anweisungen">Anweisungen</a></li><li><a href="#unterprogramme">Unterprogramme</a></li><li><a href="#ende-und-abbruch">Ende und Abbruch</a></li></ul></aside>
+<h1 id="ausfuehrung">Ausführung</h1>
+<h2 id="start">Start</h2>
+<p><code>RUN_START</code> (5680h) setzt <code>RUN_MODE</code> auf 2 (Fehler werden dann mit <code>Run*</code> gemeldet),
+legt mit <code>RUN_ALLOC</code> (569Fh) die globalen Variablen an und führt den Hauptblock aus. Am
+Ende schließt <code>RUN_END</code> eine offene Datei (<code>RUN_CLOSE</code>) und kehrt nach <code>PAS_READY</code> zurück.</p>
+<p><code>RUN_ALLOC</code> geht den <code>VAR</code>-Abschnitt durch und belegt für jede Variable von <code>INBUF</code> abwärts so
+viele Bytes, wie <code>NEG_SIZE_TAB</code> (5706h) für ihren Typ angibt (−6, −3, −2, −2), und
+schreibt das Typbyte hinein. Felder bekommen einen Kopf (Typ, Dimension, Zeiger auf die Daten);
+die Daten selbst liegen ab <code>RT_AREA0</code>. Danach beginnt dort, wo die Variablen enden, der
+<strong>Laufzeitstapel</strong> (<code>RT_SP</code>, 467Dh).</p>
+<h2 id="text-lesen">Text lesen</h2>
+<p>Zur Laufzeit liest <code>RUN_GETTOK</code> (5D61h) den Text über HL. Es überspringt alle Bytes
+unter 60h – Einrückung und die Buchstaben der Bezeichner – und liefert nur Token; Kommentare
+werden über ihren Verweis übersprungen. Die Bezeichner selbst braucht die Ausführung nicht mehr:
+Hinter jedem steht seit dem Prüflauf E2h/E3h mit Typ und Adresse.</p>
+<h2 id="laufzeitstapel">Laufzeitstapel</h2>
+<p>Ausdrücke werden auf einem eigenen Stapel ausgewertet, der von <code>RT_SP</code> nach unten wächst. Jeder
+Eintrag beginnt mit dem Typbyte:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Typbyte</th>
+<th>Inhalt</th>
+<th style="text-align: right;">Länge</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">00h</td>
+<td><code>REAL</code>, 5 Bytes Gleitkomma</td>
+<td style="text-align: right;">6</td>
+</tr>
+<tr>
+<td style="text-align: right;">01h</td>
+<td><code>INTEGER</code>, 2 Bytes (niederwertig zuerst)</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td style="text-align: right;">02h</td>
+<td><code>CHAR</code>, 1 Byte</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td style="text-align: right;">03h</td>
+<td><code>BOOLEAN</code>, 1 Byte (Bit 0 = TRUE)</td>
+<td style="text-align: right;">2</td>
+</tr>
+</tbody>
+</table>
+<p><code>RT_PUSHVAR</code> (58B0h) legt eine Variable auf den Stapel, <code>RT_POPVAR</code> (589Dh)
+schreibt den obersten Wert zurück, <code>RT_DROP</code>, <code>RT_DUP</code>, <code>RT_SWAP</code> und <code>RT_POPBOOL</code> helfen bei den
+Operatoren. Variablenadressen liefert <code>VAR_ADDR</code> (58CBh): bei E2h <code>INBUF</code> plus Abstand,
+bei E3h <code>RT_AREA1</code> plus Abstand; bei Feldern rechnet <code>ARRAY_INDEX</code> die Elementadresse aus und
+prüft die Grenzen (Err 13).</p>
+<h2 id="ausdruecke">Ausdrücke</h2>
+<p><code>RUN_EXPR</code> (5C0Bh) → <code>RUN_SIMPLE</code> → <code>RUN_TERM</code> → <code>RUN_FACTOR</code> werten nach denselben
+Rangstufen aus wie der Prüflauf. Die Operatoren springen über Tabellen: <code>RUN_TAB7A</code> (Vergleiche),
+<code>RUN_TAB81</code> (<code>-</code> <code>+</code> <code>OR</code> <code>XOR</code>), <code>RUN_TAB_MUL</code> (<code>*</code> <code>AND</code> <code>DIV</code> <code>MOD</code> <code>/</code>), die Funktionen ab
+B3h über <code>RUN_TABB3</code>, Variablen, Konstanten und Funktionsaufrufe über <code>RUN_TABE2B</code>.</p>
+<p><code>OP_PREP</code> stellt beide Operanden bereit und meldet, ob sie <code>INTEGER</code> sind; danach rechnet der
+Operator ganzzahlig (<code>IMUL</code>, <code>IDIV</code> …) oder mit Gleitkomma (<code>FADD</code>, <code>FMUL</code> …). Vergleiche legen
+ein <code>BOOLEAN</code> auf den Stapel.</p>
+<h2 id="anweisungen">Anweisungen</h2>
+<p><code>RUN_STATEMENT</code> (59ACh) verteilt nach dem Token: 69h–6Eh über <code>RUN_TAB69</code>,
+eingebaute Prozeduren 8Fh–B2h über <code>RUN_TAB8F</code>, Zuweisung und Prozeduraufruf über <code>RUN_TABE2</code>
+(E2h globale, E3h lokale Variable, E4h Prozedur). Andere Token beenden die Anweisung.</p>
+<table>
+<thead>
+<tr>
+<th>Anweisung</th>
+<th>Umsetzung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BEGIN … END</code></td>
+<td><code>RUN_BEGIN</code>: Speicher prüfen, Anweisungen ausführen, solange <code>;</code> folgt</td>
+</tr>
+<tr>
+<td><code>IF … THEN … ELSE</code></td>
+<td><code>RUN_IF</code>: Bedingung auswerten; bei FALSE über das eingetragene Sprungziel hinter <code>THEN</code> zum <code>ELSE</code> bzw. dahinter</td>
+</tr>
+<tr>
+<td><code>WHILE … DO</code></td>
+<td><code>RUN_WHILE</code>: Bedingung, Rumpf, zurück; Abbruch über das Sprungziel hinter <code>DO</code></td>
+</tr>
+<tr>
+<td><code>REPEAT … UNTIL</code></td>
+<td><code>RUN_REPEAT</code>: Anweisungen bis <code>UNTIL</code>, dann Bedingung</td>
+</tr>
+<tr>
+<td><code>FOR … TO/DOWNTO … DO</code></td>
+<td><code>RUN_FOR</code>, siehe unten</td>
+</tr>
+<tr>
+<td><code>CASE … OF … END</code></td>
+<td><code>RUN_CASE</code>: Marken der Reihe nach vergleichen (<code>CASE_LABEL</code>), passende Anweisung ausführen, Rest überspringen (<code>CASE_SKIP</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>In <code>WHILE</code>-, <code>REPEAT</code>- und <code>FOR</code>-Schleifen sowie zu Beginn des Hauptblocks und jedes
+Unterprogramms (<code>RUN_STMT_BRK</code>) fragt der Interpreter die BREAK-Taste ab; BREAK führt zu
+„*Break“ und <code>PAS_READY</code>.</p>
+<h3 id="for">FOR</h3>
+<p><code>RUN_FOR</code> arbeitet mit selbstmodifiziertem Code: <code>FOR_SETVAR</code> trägt Länge und Adresse der
+Laufvariablen in mehrere Befehle ein (<code>SM_FOR_LEN1</code> … <code>SM_FOR_VAR3</code>), und je nach <code>TO</code> oder
+<code>DOWNTO</code> werden Vergleich (<code>SM_FOR_CMP</code>) und Schritt (<code>SM_FOR_STEP</code>: <code>FOR_INC</code> oder <code>FOR_DEC</code>)
+gesetzt. Weil diese Werte im Code stehen, rettet <code>RUN_FOR</code> die alten Operanden auf dem
+Prozessorstapel und stellt sie am Ende wieder her – so funktionieren auch verschachtelte
+Schleifen. Die Laufvariable kann <code>INTEGER</code> oder <code>CHAR</code> sein; ein Überlauf ergibt Err 13.</p>
+<h2 id="unterprogramme">Unterprogramme</h2>
+<p>Ein Prozeduraufruf (E4h, <code>RUN_PCALL</code>) oder Funktionsaufruf (E5h, <code>RUN_FCALL</code>) läuft über
+<code>RUN_CALLSUB</code> (574Eh):</p>
+<ol>
+<li>Die aktuellen Parameter auswerten (Wertübergabe) und als lokale Variablen anlegen; bei einer
+   Funktion vorher Platz für das Ergebnis schaffen.</li>
+<li><code>RT_AREA1</code> auf die neuen lokalen Variablen setzen.</li>
+<li>Mit gesperrten Interrupts den Prozessorstapel zwischen SP und <code>STACK_TOP</code> unter den
+   Laufzeitstapel umkopieren und den Rumpf ausführen.</li>
+<li>Danach Stapel, <code>RT_AREA1</code> und <code>RT_AREA0</code> wiederherstellen.</li>
+</ol>
+<p>Weil jeder Aufruf seine eigenen lokalen Variablen bekommt, sind Unterprogramme rekursiv
+aufrufbar, wie es das Handbuch angibt. Im Beispiel aus dem <a href="editor.html#beispiel">Editor</a> ruft
+die Schleife <code>p(i)</code> dreimal auf; das Ergebnis <code>6</code> ist im Emulatortest nachgeprüft.</p>
+<h2 id="ende-und-abbruch">Ende und Abbruch</h2>
+<table>
+<thead>
+<tr>
+<th>Ereignis</th>
+<th>Ablauf</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>END.</code> erreicht</td>
+<td><code>RUN_END</code>: Datei schließen, „Ready.“</td>
+</tr>
+<tr>
+<td>Fehler</td>
+<td><code>ERROR</code>: „<em>Err nn</em> Run*“, <code>PAS_READY</code>; eine offene Datei wird nicht abgeschlossen, <code>PAS_READY</code> setzt nur ihren Zustand zurück</td>
+</tr>
+<tr>
+<td>BREAK</td>
+<td><code>BREAK_STOP</code>: „*Break“, <code>PAS_READY</code></td>
+</tr>
+<tr>
+<td>Kassettenfehler</td>
+<td>„Err 34/35<em> Run</em>“ und Wahl C)ontinue / E)ditor</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="pruefung.html">← Prüflauf und Symboltabellen</a><a class="next" href="zahlen.html">Zahlen und Arithmetik →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

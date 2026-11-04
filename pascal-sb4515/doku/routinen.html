@@ -1,0 +1,2513 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Routinenverzeichnis – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li class="cur"><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#start-und-editor">Start und Editor</a></li><li><a href="#schluesselworttabelle-tokenizer-und-lister">Schlüsselworttabelle, Tokenizer und Lister</a></li><li><a href="#laufzeit-ein-ausgabefunktionen-zahlenumwandlung-readwrite">Laufzeit: Ein-/Ausgabefunktionen, Zahlenumwandlung, READ/WRITE</a></li><li><a href="#dateien-auf-kassette-music">Dateien auf Kassette, MUSIC</a></li><li><a href="#trigonometrie-farbterminal-mathematische-funktionen">Trigonometrie, Farbterminal, mathematische Funktionen</a></li><li><a href="#grafik-und-drucker">Grafik und Drucker</a></li><li><a href="#systemkommandos-grafik-und-sonderbefehle">Systemkommandos, Grafik- und Sonderbefehle</a></li><li><a href="#prueflauf-deklarationen-symboltabellen-anweisungen-ausdruecke">Prüflauf: Deklarationen, Symboltabellen, Anweisungen, Ausdrücke</a></li><li><a href="#fehler">Fehler</a></li><li><a href="#gleitkomma">Gleitkomma</a></li><li><a href="#ausfuehrung-variablen-anweisungen-ausdruecke-operatoren">Ausführung: Variablen, Anweisungen, Ausdrücke, Operatoren</a></li><li><a href="#startdaten-im-programmbereich">Startdaten im Programmbereich</a></li></ul></aside>
+<h1 id="routinenverzeichnis">Routinenverzeichnis</h1>
+<p>Alle Routinen und Datenbereiche des Interpreters (ab <code>PAS_BOOT</code>, 12FDh), die in <code>SB4515.asm</code> einen eigenen Kommentarkopf haben, in der Reihenfolge der Quelle. Der Text ist der Kommentar aus der Quelle (er stammt aus <code>sb4515/sb4515_cfg.py</code>). Automatisch erzeugt aus <code>SB4515.asm</code> und <code>build/SB4515.sym</code>; 467 Einträge. Die Routinen des Monitors SB-1511 beschreibt <code>SB1511.asm</code>.</p>
+<h2 id="start-und-editor">Start und Editor</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">12FDh</td>
+<td><code>PAS_BOOT</code></td>
+<td>Einsprung über GOOUT (00AEh) nach dem Laden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">13F2h</td>
+<td><code>LINE_GOTO</code></td>
+<td>Zeiger auf Zeile HL setzen (vom Anfang aus zählen); DE bleibt erhalten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">13FDh</td>
+<td><code>SKIP_DOT</code></td>
+<td>Folgt ein &quot;.&quot; (nach der Zeilennummer), überspringen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1403h</td>
+<td><code>PCMD_LINENO</code></td>
+<td>Zeile beginnt mit einer Nummer n: &quot;n&quot; allein löscht Zeile n, &quot;n Text&quot; ersetzt Zeile n, &quot;n&quot; mit Pfeil (1Fh) setzt die Eingabe ab Zeile n fort.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1424h</td>
+<td><code>GET_RANGE</code></td>
+<td>Zeilenbereich &quot;n&quot;, &quot;n-m&quot;, &quot;-m&quot;, &quot;n-&quot; oder leer lesen. Ergebnis: Zeiger auf Zeile n, HL = Anzahl der Zeilen (4000h = bis zum Ende).</td>
+</tr>
+<tr>
+<td style="text-align: right;">146Ah</td>
+<td><code>NEG_HL</code></td>
+<td>HL = -HL.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1472h</td>
+<td><code>DIV16</code></td>
+<td>DE = DE / BC, HL = Rest (16 Bit ohne Vorzeichen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1494h</td>
+<td><code>GETL_INBUF</code></td>
+<td>Zeile in den Eingabepuffer INBUF lesen (GETL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">149Bh</td>
+<td><code>LINE_DELETE</code></td>
+<td>Zeile am Zeiger TXT_PTR aus dem Text entfernen (Rest nachschieben). C = Zeiger am Textende.</td>
+</tr>
+<tr>
+<td style="text-align: right;">14C7h</td>
+<td><code>LINE_INSERT</code></td>
+<td>BC Bytes ab HL vor der Zeile am Zeiger einfügen (Text verschieben). C = kein Platz.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1504h</td>
+<td><code>GET_NUM_EOL</code></td>
+<td>Dezimalzahl nach HL lesen, danach muss die Zeile enden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">150Ah</td>
+<td><code>CHK_EOL</code></td>
+<td>Leerzeichen überspringen; ist das nächste Zeichen nicht CR -&gt; ERR_40.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1514h</td>
+<td><code>PCMD_V</code></td>
+<td>V – Verify: Kassettendatei mit dem Programm im Speicher vergleichen. Teilt sich den Code mit PCMD_A (A = 0: Vergleich, A = 1: Anhängen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1516h</td>
+<td><code>PCMD_A</code></td>
+<td>A – Append: Datei vom Band suchen (Typ A0h, Name passend) und hinter das Programm im Speicher laden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1569h</td>
+<td><code>PCMD_S</code></td>
+<td>S – Save: Programmtext als Datei vom Typ A0h auf Band schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">15AFh</td>
+<td><code>CHK_PROG</code></td>
+<td>Zeilenende prüfen; ist kein Programm im Speicher -&gt; ERR_48.</td>
+</tr>
+<tr>
+<td style="text-align: right;">15BFh</td>
+<td><code>CMT_VERIFY</code></td>
+<td>Band mit dem Programmtext vergleichen (&quot;Verifying&quot;, &quot;Verify OK!&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1610h</td>
+<td><code>PCMD_I</code></td>
+<td>I/ – IPL: PPI Port C Bit 3 zurücksetzen und HALT (Neustart über den IPL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1618h</td>
+<td><code>PCMD_Q</code></td>
+<td>Q/ – zurück in den Monitor.</td>
+</tr>
+<tr>
+<td style="text-align: right;">161Fh</td>
+<td><code>PCMD_H</code></td>
+<td>H – Listing auf den Drucker (sonst wie P).</td>
+</tr>
+<tr>
+<td style="text-align: right;">162Ah</td>
+<td><code>PCMD_Z</code></td>
+<td>Z – Eingabe am Programmende fortsetzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1639h</td>
+<td><code>PCMD_B</code></td>
+<td>B – Eingabe ab Zeile 0 (vor dem vorhandenen Programm).</td>
+</tr>
+<tr>
+<td style="text-align: right;">163Fh</td>
+<td><code>INPUT_LOOP</code></td>
+<td>Eingabeschleife: Zeilennummer zeigen, ggf. einrücken ($), Zeile lesen und einfügen, bis eine leere Zeile kommt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1645h</td>
+<td><code>INDENT_MASK</code></td>
+<td>Operand: 00h = ohne, FFh = mit Einrückung (Kommando &quot;$&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">168Dh</td>
+<td><code>LINENO_CLR</code></td>
+<td>D19E0 = 0 (Zeilennummer am Zeiger).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1693h</td>
+<td><code>LINENO_INC</code></td>
+<td>D19E0 um 1 erhöhen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">169Dh</td>
+<td><code>PCMD_ARROW</code></td>
+<td>Pfeil (1Fh) am Zeilenanfang: CR allein -&gt; Eingabe ab Zeiger, sonst Zeile am Zeiger einfügen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">16A8h</td>
+<td><code>LINE_ENTER</code></td>
+<td>Zeile ab DE in Token umsetzen (TOKENIZE) und vor der Zeile am Zeiger einfügen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">16C5h</td>
+<td><code>PCMD_M</code></td>
+<td>M – freien Speicher anzeigen (&quot;nnnnn Bytes&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">16C8h</td>
+<td><code>PR_FREE</code></td>
+<td>Freien Speicher (D19E2 - TXT_END) dezimal mit &quot;Bytes&quot; ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">16ECh</td>
+<td><code>PR_FREE_NUM</code></td>
+<td>HL fünfstellig ausgeben (Einsprung in PR_DEC4).</td>
+</tr>
+<tr>
+<td style="text-align: right;">16F1h</td>
+<td><code>PTR_TOP</code></td>
+<td>Zeiger auf Zeile 0 (TXT_START).</td>
+</tr>
+<tr>
+<td style="text-align: right;">16FBh</td>
+<td><code>PCMD_T</code></td>
+<td>T – (nicht im Handbuch) Zeiger auf den Anfang, dann wie N.</td>
+</tr>
+<tr>
+<td style="text-align: right;">16FEh</td>
+<td><code>PCMD_N</code></td>
+<td>N n – Zeiger n Zeilen vorwärts, Zeile anzeigen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1708h</td>
+<td><code>LINE_SKIP</code></td>
+<td>Zeiger HL Zeilen vorwärts. C = Textende erreicht.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1718h</td>
+<td><code>PCMD_L</code></td>
+<td>L n – Zeiger n Zeilen zurück, Zeile anzeigen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">173Fh</td>
+<td><code>PCMD_D</code></td>
+<td>D n / D n-m – Zeilen löschen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">174Bh</td>
+<td><code>DEL_LINES</code></td>
+<td>HL Zeilen am Zeiger löschen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">175Ah</td>
+<td><code>PRT_INIT</code></td>
+<td>Port F4h = 0 (Druckerschnittstelle zurücksetzen, vermutlich).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1760h</td>
+<td><code>PCMD_P</code></td>
+<td>P / P n / P n-m – Listing auf den Bildschirm. Leertaste hält an, BREAK bricht ab.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1781h</td>
+<td><code>LIST_KEY</code></td>
+<td>Taste während des Listings: BREAK -&gt; Abbruch, Leertaste -&gt; anhalten bis zur nächsten Leertaste.</td>
+</tr>
+<tr>
+<td style="text-align: right;">17A0h</td>
+<td><code>DELAY</code></td>
+<td>Kurze Warteschleife (256 x 256 DJNZ).</td>
+</tr>
+<tr>
+<td style="text-align: right;">17AAh</td>
+<td><code>DELAY_B</code></td>
+<td>Warteschleife mit B Durchläufen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">17AFh</td>
+<td><code>LIMIT_ERR</code></td>
+<td>Speichergrenze ungültig: alte Grenze zurück, ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">17B6h</td>
+<td><code>INKEY</code></td>
+<td>Taste ohne Warten holen (GETKY), Register erhalten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">17C2h</td>
+<td><code>PCMD_E</code></td>
+<td>E$ adr – Obergrenze des Speichers setzen (STACK_TOP); muss über TXT_END + 438h und unter dem RAM-Ende liegen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">17DDh</td>
+<td><code>RAM_END</code></td>
+<td>Operand: RAM-Ende aus dem Speichertest.</td>
+</tr>
+<tr>
+<td style="text-align: right;">17F2h</td>
+<td><code>GET_HEX</code></td>
+<td>Hexadezimalzahl ab DE nach BC und nach (HL) schreiben; Überlauf -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">182Fh</td>
+<td><code>GET_DEC</code></td>
+<td>Dezimalzahl ab DE nach HL; Überlauf -&gt; ERR_13 (außer beim Lesen mit Vorzeichen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1859h</td>
+<td><code>CHK_SLASH</code></td>
+<td>Es muss &quot;/&quot; und dann das Zeilenende folgen (K/, I/, Q/), sonst ERR_40.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1863h</td>
+<td><code>SET_BUFFERS</code></td>
+<td>Puffer unterhalb von HL (= STACK_TOP) anlegen: WORKBUF = HL - 320h, INBUF = WORKBUF - 56h, D19E2 (Ende des Textbereichs) = INBUF - C8h.</td>
+</tr>
+<tr>
+<td style="text-align: right;">187Ch</td>
+<td><code>PAS_COLD</code></td>
+<td>Kaltstart mit HL = Stapelobergrenze: Laufzeit initialisieren, dann PAS_NEW.</td>
+</tr>
+<tr>
+<td style="text-align: right;">188Bh</td>
+<td><code>PCMD_K</code></td>
+<td>K/ – Programm löschen (wie NEW).</td>
+</tr>
+<tr>
+<td style="text-align: right;">188Eh</td>
+<td><code>PAS_NEW</code></td>
+<td>Programm löschen, Kopfmeldung und freien Speicher ausgeben, PAS_READY.</td>
+</tr>
+<tr>
+<td style="text-align: right;">18F3h</td>
+<td><code>PR_LINENO</code></td>
+<td>Zeilennummer (D19E0) vierstellig mit &quot;.&quot; ausgeben; Operand 00h/FFh schaltet die Nummern beim Drucken ab (Kommando &quot;#&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1903h</td>
+<td><code>PR_DEC4</code></td>
+<td>HL dezimal vierstellig mit &quot;.&quot; (führende Nullen als Leerzeichen); Aufrufer legt HL zweimal auf den Stapel.</td>
+</tr>
+<tr>
+<td style="text-align: right;">192Ah</td>
+<td><code>PR_DIGIT</code></td>
+<td>Eine Dezimalstelle von HL zur Basis DE ausgeben (führende Null als Leerzeichen, solange der Operand von L193D 30h ist).</td>
+</tr>
+<tr>
+<td style="text-align: right;">193Dh</td>
+<td><code>SM_LEADZERO</code></td>
+<td>Operand: 30h = führende Nullen als Leerzeichen ausgeben, 00h = Ziffern ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1993h</td>
+<td><code>PR_NEWLINE</code></td>
+<td>Zeilenende ausgeben: 0Dh auf den Bildschirm, 0Ah auf den Drucker.</td>
+</tr>
+<tr>
+<td style="text-align: right;">199Eh</td>
+<td><code>PR_CHAR</code></td>
+<td>Zeichen A ausgeben: OUT_PRT = 0 Bildschirm (PRNT), sonst Drucker (PRT_OUT).</td>
+</tr>
+<tr>
+<td style="text-align: right;">19ADh</td>
+<td><code>CHK_BREAK</code></td>
+<td>BREAK gedrückt -&gt; &quot;*Break&quot; und PAS_READY.</td>
+</tr>
+<tr>
+<td style="text-align: right;">19B1h</td>
+<td><code>BREAK_STOP</code></td>
+<td>&quot;*Break&quot; ausgeben, zurück nach PAS_READY.</td>
+</tr>
+<tr>
+<td style="text-align: right;">19BAh</td>
+<td><code>RUN_END</code></td>
+<td>Programmende: offene Datei schließen (RUN_CLOSE), PAS_READY.</td>
+</tr>
+<tr>
+<td style="text-align: right;">19C5h</td>
+<td><code>GET_LINE</code></td>
+<td>Zeile nach (HL) lesen (GETL); BREAK -&gt; BREAK_STOP. DE zeigt auf die Zeile.</td>
+</tr>
+<tr>
+<td style="text-align: right;">19E8h</td>
+<td><code>SKIP_IDENT</code></td>
+<td>Bezeichner (Buchstaben/Ziffern) überspringen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A04h</td>
+<td><code>PR_QUOTED</code></td>
+<td>Text bis zum Begrenzer A (&quot; oder &#x27;) ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A15h</td>
+<td><code>PR_3NL</code></td>
+<td>Drei Leerzeilen (über L3310).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A21h</td>
+<td><code>PR_RULE</code></td>
+<td>Trennlinie (39 x Zeichen 90h) ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A2Dh</td>
+<td><code>GETL_PATCH</code></td>
+<td>GETL im Monitor umleiten: Einsprung auf ??TOL und JP in GETL_DONE, damit Zeilen ab Cursorposition gelesen werden (vermutlich für den Editor).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A50h</td>
+<td><code>CMT_SKIPFILE</code></td>
+<td>Falsche Datei: SERSP, NZ setzen (weitersuchen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A56h</td>
+<td><code>GET_FILENAME</code></td>
+<td>&quot;Filename?&quot; ausgeben, Namen lesen; HL zeigt hinter den Prompt.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="schluesselworttabelle-tokenizer-und-lister">Schlüsselworttabelle, Tokenizer und Lister</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1C5Eh</td>
+<td><code>TOKENIZE</code></td>
+<td>Zeile ab DE in Token umsetzen, Ergebnis ab WORKBUF; HL = Ende. Kleinbuchstaben außerhalb von Texten werden groß (UPCASE_LINE), Bezeichner bekommen ein E2h-Token, Zahlen gehen über TOK_NUMBER.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1D6Eh</td>
+<td><code>KW_MATCH</code></td>
+<td>Letztes Zeichen eines Worts mit Bit 7 markieren und in KWTAB suchen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1D77h</td>
+<td><code>KW_FIND</code></td>
+<td>Wort ab (Operand bei L1D7C) in KWTAB suchen. C = gefunden, B = Token.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1D7Ch</td>
+<td><code>SM_KWPTR</code></td>
+<td>Operand: Anfang des Worts, das KW_FIND sucht.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1D9Eh</td>
+<td><code>PR_INLINE</code></td>
+<td>Text hinter dem CALL bis 00h ausgeben (PR_CHAR), dahinter weiter.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1DA9h</td>
+<td><code>RUN_ABORT</code></td>
+<td>Zweimal BELL, zurück nach PAS_READY (Prozedur im Ausdruck u. ä.).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1DB2h</td>
+<td><code>LIST_LINE</code></td>
+<td>Zeile am Zeiger mit Nummer ausgeben (auf Bildschirm oder Drucker).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1DD5h</td>
+<td><code>DETOKENIZE</code></td>
+<td>Zeile ab HL in Klartext nach 26DFh umsetzen (Einrückung, Schlüsselwörter klein, Zahlen über LIST_NUMBER).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1E3Eh</td>
+<td><code>LIST_KEYWORD</code></td>
+<td>Token A als Schlüsselwort (klein) ausgeben, ggf. mit Leerzeichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1E75h</td>
+<td><code>KW_SPACE_AFTER</code></td>
+<td>C = nach Token A kein Leerzeichen (Operatoren, Klammern, Funktionen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1EABh</td>
+<td><code>TO_LOWER</code></td>
+<td>Großbuchstaben in Kleinbuchstaben wandeln.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1EB4h</td>
+<td><code>IS_LOWER</code></td>
+<td>NC = a-z.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1EBBh</td>
+<td><code>UPCASE_LINE</code></td>
+<td>Kleinbuchstaben der Eingabezeile ab DE groß machen, außer in Texten und Kommentaren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1EE8h</td>
+<td><code>LINE_NEXT</code></td>
+<td>TXT_PTR auf die nächste Zeile (Token mit Operanden überspringen). C = Textende.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F31h</td>
+<td><code>TOK_SKIP_HL</code></td>
+<td>Token (HL) holen und mit seinen Operandenbytes überspringen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F33h</td>
+<td><code>TOK_SKIP</code></td>
+<td>Ist A ein Token ab D8h, HL um seine Operandenbytes (TOKLEN_TAB) weiterstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F36h</td>
+<td><code>TOK_SKIP_A</code></td>
+<td>Wie TOK_SKIP mit A = Token - D8h.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F39h</td>
+<td><code>SM_TOKLEN</code></td>
+<td>Operand (Displacement): Token - D8h als Index in TOKLEN_TAB.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F3Ch</td>
+<td><code>ADD_HL_A</code></td>
+<td>HL = HL + A.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F41h</td>
+<td><code>TOKLEN_TAB</code></td>
+<td>Zahl der Operandenbytes hinter den Token D8h-E6h (über IX).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F80h</td>
+<td><code>ASK_FILENAME</code></td>
+<td>&quot;Filename?&quot; ausgeben und den Namen vom Bildschirm lesen (FNAME ohne Text).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F86h</td>
+<td><code>GETL_SCREEN</code></td>
+<td>Zeile vom Bildschirm ab Cursor lesen (für READ von der Tastatur); BREAK -&gt; BREAK_STOP.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1FC7h</td>
+<td><code>PR_MSG_NL</code></td>
+<td>Neue Zeile (falls nötig) und Meldung DE bis 0Dh ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1FCEh</td>
+<td><code>COPY_FNAME</code></td>
+<td>Dateinamen ab HL+1 (ohne Anführungszeichen, max. 17 Zeichen) nach DE+1 kopieren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1FE0h</td>
+<td><code>PR_LOADING</code></td>
+<td>&quot;Loading&quot; und Dateiname ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1FE3h</td>
+<td><code>PR_MSG_NAME</code></td>
+<td>Meldung DE und den Dateinamen aus dem Kassettenkopf ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1FECh</td>
+<td><code>PR_FOUND</code></td>
+<td>&quot;Found&quot; und Dateiname ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1FF1h</td>
+<td><code>CMP_FNAME</code></td>
+<td>Gesuchten Namen (HL) mit dem Namen im Kopf vergleichen. Z = gleich.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="laufzeit-ein-ausgabefunktionen-zahlenumwandlung-readwrite">Laufzeit: Ein-/Ausgabefunktionen, Zahlenumwandlung, READ/WRITE</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">2003h</td>
+<td><code>CALL_SAVE</code></td>
+<td>Folgende Routine aufrufen, dabei HL, DE, BC, AF erhalten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">200Ch</td>
+<td><code>SM_CALLSAVE</code></td>
+<td>Operand: Ziel von CALL_SAVE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">205Ch</td>
+<td><code>SM_LASTKEY</code></td>
+<td>Operand: zuletzt gelesene Taste (KEY liefert eine gehaltene Taste nur einmal).</td>
+</tr>
+<tr>
+<td style="text-align: right;">20EDh</td>
+<td><code>SM_USRCALL</code></td>
+<td>Operand: Adresse des Maschinenprogramms bei CALL(.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2134h</td>
+<td><code>JP_PRNT</code></td>
+<td>Sprungleiste zum Monitor: PRNT, MSG, MSGX.</td>
+</tr>
+<tr>
+<td style="text-align: right;">213Ah</td>
+<td><code>JP_MSGX</code></td>
+<td>Sprung nach MSGX.</td>
+</tr>
+<tr>
+<td style="text-align: right;">213Dh</td>
+<td><code>BIN2BCD</code></td>
+<td>DE binär in sechs Dezimalziffern (ASCII) ab HL wandeln.</td>
+</tr>
+<tr>
+<td style="text-align: right;">21A1h</td>
+<td><code>PR_BCD2</code></td>
+<td>BCD-Byte B als zwei ASCII-Ziffern nach (HL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">21B4h</td>
+<td><code>BCD_POW2</code></td>
+<td>Zweierpotenzen in BCD für BIN2BCD.</td>
+</tr>
+<tr>
+<td style="text-align: right;">21C3h</td>
+<td><code>LIST_NUMBER</code></td>
+<td>Zahlkonstante (Token E6h) im Listing ausgeben: ganzzahlig über BIN2BCD, Gleitkomma über L4CB6.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2232h</td>
+<td><code>LST_SETDOT</code></td>
+<td>Merker &quot;Punkt gesehen&quot; setzen, dann &quot;0&quot; anhängen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2235h</td>
+<td><code>LST_ZERO</code></td>
+<td>&quot;0&quot; nach (DE) anhängen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">223Ah</td>
+<td><code>STRIP_ZEROS</code></td>
+<td>Führende Nullen der Zahl ab HL durch Leerzeichen ersetzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">224Bh</td>
+<td><code>NUM_SCAN</code></td>
+<td>Zahl im Quelltext ab DE prüfen: C = Gleitkomma (&quot;.&quot;, &quot;E&quot;), sonst ganzzahlig.</td>
+</tr>
+<tr>
+<td style="text-align: right;">226Ch</td>
+<td><code>TOK_NUMBER</code></td>
+<td>Zahl im Quelltext in eine Konstante (Token E6h) umsetzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">22E9h</td>
+<td><code>PUT_DIGIT</code></td>
+<td>Zeichen A nach (HL) schreiben, C = keine Ziffer.</td>
+</tr>
+<tr>
+<td style="text-align: right;">22FBh</td>
+<td><code>SM_READ_SP</code></td>
+<td>Operand: gesicherter Stapelzeiger von READ (vermutlich für die neue Abfrage nach einer Fehleingabe).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2309h</td>
+<td><code>READ_KBD</code></td>
+<td>READ von der Tastatur: &quot;?&quot; ausgeben, Zeile vom Bildschirm holen, Werte nacheinander den Variablen zuweisen (Trennzeichen &quot;,&quot;, ERR_33).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2375h</td>
+<td><code>READ_INT</code></td>
+<td>Ganzzahl aus der Eingabe lesen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2394h</td>
+<td><code>READ_NUMBER</code></td>
+<td>Zahl (mit Vorzeichen, Dezimalpunkt, Exponent) aus der Eingabe ab DE in INTEGER oder REAL wandeln.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2409h</td>
+<td><code>SM_NUMTYPE</code></td>
+<td>Operand: Typ des gelesenen Werts; GET_DEC wertet ihn bei einem Überlauf aus.</td>
+</tr>
+<tr>
+<td style="text-align: right;">244Ah</td>
+<td><code>EVAL_TEXT</code></td>
+<td>Text &quot;...&quot; aus dem Programm nach 26DFh kopieren (Ausgabe von Texten).</td>
+</tr>
+<tr>
+<td style="text-align: right;">248Eh</td>
+<td><code>WRITE_SETUP</code></td>
+<td>Ausgaberoutine für Texte (DE) in L253B eintragen; Datei oder Bildschirm.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2496h</td>
+<td><code>SM_WRSETUP</code></td>
+<td>Operand: Fortsetzung von WRITE_SETUP.</td>
+</tr>
+<tr>
+<td style="text-align: right;">24A5h</td>
+<td><code>WRITE_ITEMS</code></td>
+<td>Ausgabeliste von WRITE: Text oder Ausdruck, optional &quot;:Breite&quot; (max. 20) und &quot;:Nachkommastellen&quot; (max. 9); zu wenig Platz -&gt; ERR_36.</td>
+</tr>
+<tr>
+<td style="text-align: right;">253Bh</td>
+<td><code>SM_WROUT</code></td>
+<td>Operand: Ausgaberoutine für Texte bei WRITE (MSG, PRT_TEXT oder Datei).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2563h</td>
+<td><code>INT2STR</code></td>
+<td>INTEGER DE als Dezimaltext nach 26A2h (&quot;-32768&quot; gesondert).</td>
+</tr>
+<tr>
+<td style="text-align: right;">25BAh</td>
+<td><code>REAL2STR</code></td>
+<td>REAL-Zahl mit Breite/Nachkommastellen formatieren (FP2STR).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2760h</td>
+<td><code>CMT_ERR34</code></td>
+<td>Schreibfehler im Programmlauf: &quot;Err 34<em> Run</em>&quot; und Tastenabfrage.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2765h</td>
+<td><code>CMT_ERR35</code></td>
+<td>Lesefehler im Programmlauf: &quot;Err 35<em> Run</em>&quot; und Tastenabfrage.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2768h</td>
+<td><code>CMT_ERRKEY</code></td>
+<td>Meldung, &quot;** Push key &#91; C)ontinue E)ditor &#93;&quot;: C = wiederholen, E = PAS_READY.</td>
+</tr>
+<tr>
+<td style="text-align: right;">27C0h</td>
+<td><code>FILE_FIND</code></td>
+<td>Datei vom Typ 03h mit dem Namen aus FNAME auf dem Band suchen, &quot;Found&quot;/&quot;Loading&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">27E3h</td>
+<td><code>READ_FILE</code></td>
+<td>READ aus einer Datei.</td>
+</tr>
+<tr>
+<td style="text-align: right;">27E5h</td>
+<td><code>WRITE_FILE</code></td>
+<td>WRITE in eine Datei; beim ersten Zugriff Dateikopf schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">27E8h</td>
+<td><code>FILE_STATE</code></td>
+<td>Operand: Zustand der Datei.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2869h</td>
+<td><code>SM_FILE_CNT</code></td>
+<td>Operand: Zähler der Feldelemente bei READ/WRITE mit Dateien.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2879h</td>
+<td><code>SM_FILE_VAR</code></td>
+<td>Operand: Adresse der Variablen beim Datei-Zugriff.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2889h</td>
+<td><code>FILE_ITEM</code></td>
+<td>Einen Wert aus dem Dateipuffer lesen bzw. hineinschreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">288Dh</td>
+<td><code>SM_FILE_MODE</code></td>
+<td>Operand: Richtung des Datei-Zugriffs (lesen/schreiben).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2899h</td>
+<td><code>SM_FILE_BUFPTR</code></td>
+<td>Operand: Zeiger in FILEBUF.</td>
+</tr>
+<tr>
+<td style="text-align: right;">28D8h</td>
+<td><code>SM_FILE_FLAG</code></td>
+<td>Operand: Merker des Datei-Zugriffs.</td>
+</tr>
+<tr>
+<td style="text-align: right;">28F9h</td>
+<td><code>PARSE_INT</code></td>
+<td>Ganzzahl mit Vorzeichen ab DE nach HL.</td>
+</tr>
+<tr>
+<td style="text-align: right;">291Eh</td>
+<td><code>CMT_SETBLK</code></td>
+<td>Kassettenkopf auf einen Block von 100h Bytes ab FILEBUF einstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">292Fh</td>
+<td><code>FILE_NEXT</code></td>
+<td>Nächster Block, falls der Puffer leer/voll ist.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2933h</td>
+<td><code>CMT_READBLK</code></td>
+<td>Block vom Band lesen (RDDAT); Fehler -&gt; ERR_35.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2945h</td>
+<td><code>FILE_PTR</code></td>
+<td>Pufferzeiger prüfen/weiterstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">294Eh</td>
+<td><code>FILE_READBLK</code></td>
+<td>Block lesen, Pufferzeiger und Modus setzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">29EAh</td>
+<td><code>CMT_WRITEBLK</code></td>
+<td>Block auf Band schreiben (WRDAT); Fehler -&gt; ERR_34.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="dateien-auf-kassette-music">Dateien auf Kassette, MUSIC</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">29F7h</td>
+<td><code>RUN_CLOSE</code></td>
+<td>CLOSE: letzten Block schreiben, Datei schließen (auch am Programmende).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2A37h</td>
+<td><code>CMT_BLOCKIO</code></td>
+<td>Block über RDDAT bzw. WRDAT (Operand bei L2A48) übertragen, Motor aus.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2A48h</td>
+<td><code>SM_CMT_IO</code></td>
+<td>Operand: RDDAT oder WRDAT.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2B88h</td>
+<td><code>MUSIC_TEXT</code></td>
+<td>Musiktext ab DE spielen (Abschnitte über MUSIC_PART).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2B96h</td>
+<td><code>MUSIC_PART</code></td>
+<td>Teil eines Musiktexts nach 2B83h übertragen und mit MELDY spielen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2BA4h</td>
+<td><code>MUSIC_NOTE</code></td>
+<td>Eine Note (mit Oktave/Länge) in den Musikpuffer übernehmen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2BBAh</td>
+<td><code>MUSIC_PLAY</code></td>
+<td>Puffer 2B83h mit MELDY spielen; BREAK -&gt; BREAK_STOP.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2BF8h</td>
+<td><code>MUSIC_CHK</code></td>
+<td>Gültiges Zeichen eines Musiktexts? Sonst ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C08h</td>
+<td><code>IS_NOTE</code></td>
+<td>C = Notenbuchstabe A-G.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C0Fh</td>
+<td><code>IS_NOTE_R</code></td>
+<td>Note oder Pause (R).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C18h</td>
+<td><code>IS_SHARP</code></td>
+<td>Vorzeichen &quot;+&quot;/&quot;-&quot; (Oktave) erkennen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C7Ah</td>
+<td><code>CHK_FILEVAR</code></td>
+<td>Ist das erste Argument eine FILE-Variable? NZ = ja.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="trigonometrie-farbterminal-mathematische-funktionen">Trigonometrie, Farbterminal, mathematische Funktionen</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">2CA8h</td>
+<td><code>RUN_SIN</code></td>
+<td>SIN(x): Argument reduzieren, Quadranten über Vergleiche mit pi/2 und pi, FSIN.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2D18h</td>
+<td><code>TRIG_CLAMP</code></td>
+<td>Sehr kleine Exponenten begrenzen (Exponentbyte höchstens A0h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2D49h</td>
+<td><code>TRIG_CMP_PI2</code></td>
+<td>Argument mit pi/2 vergleichen (C = kleiner).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2D68h</td>
+<td><code>TRIG_CMP_PI</code></td>
+<td>Argument mit pi vergleichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2D6Dh</td>
+<td><code>TRIG_SUB_PI</code></td>
+<td>Argument = Argument - pi.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2D77h</td>
+<td><code>TRIG_NEG</code></td>
+<td>Vorzeichen des Arguments umdrehen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2D7Dh</td>
+<td><code>TRIG_ARG</code></td>
+<td>Argument auswerten (RUN_EXPR) und über INT(x / 2pi) * 2pi auf eine Periode reduzieren. TRIG_ARGP zeigt auf den Wert auf dem Laufzeitstapel, TRIG_SIGN merkt das Vorzeichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2DD4h</td>
+<td><code>SYN_STRARG</code></td>
+<td>TRAN(, MUSIC(, IMAGE( prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2E92h</td>
+<td><code>TRAN_CHAR</code></td>
+<td>Zeichen senden (für SYRET-Kommandos).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2E95h</td>
+<td><code>TRAN_BYTE</code></td>
+<td>Byte A an das Farbterminal senden (Port EEh, Handshake über EFh, BREAK bricht ab).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2EB9h</td>
+<td><code>TRAN_RESET</code></td>
+<td>Schnittstelle EEh/EFh zurücksetzen und kurz warten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2EBFh</td>
+<td><code>TRAN_STROBE</code></td>
+<td>Steuerwert A an Port EFh ausgeben (Strobe).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2EC8h</td>
+<td><code>DELAY_BB8</code></td>
+<td>Warteschleife (BB8h Durchläufe).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2FA1h</td>
+<td><code>STR_TRUNC</code></td>
+<td>Ganzzahlteil eines Zahltexts ab DE lesen (bis &quot;.&quot;); für TRUNC.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2FCAh</td>
+<td><code>TRAN_INIT</code></td>
+<td>Kommando &quot;J,$13F8&quot; an das Farbterminal senden (beim Kaltstart und nach BREAK in REQTR); Fortsetzung über den Operanden bei L2FF6.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2FD7h</td>
+<td><code>TRAN_SENDCH</code></td>
+<td>Zeichen A mit Handshake senden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2FF6h</td>
+<td><code>SM_TRAN_CONT</code></td>
+<td>Operand: Fortsetzung nach TRAN_INIT (PAS_NEW oder BREAK_STOP).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="grafik-und-drucker">Grafik und Drucker</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">3080h</td>
+<td><code>GR_POINT</code></td>
+<td>Grafikpunkt (GR_X/GR_Y) in allen Ebenen abfragen (POINT).</td>
+</tr>
+<tr>
+<td style="text-align: right;">309Dh</td>
+<td><code>GR_TESTPT</code></td>
+<td>Punkt in einer Ebene abfragen (Modus 46h = BIT).</td>
+</tr>
+<tr>
+<td style="text-align: right;">30ACh</td>
+<td><code>GR_RESET</code></td>
+<td>Punkt an (X,Y) löschen (GRSET).</td>
+</tr>
+<tr>
+<td style="text-align: right;">30B8h</td>
+<td><code>GR_SET</code></td>
+<td>Punkt an (X,Y) setzen (GSET).</td>
+</tr>
+<tr>
+<td style="text-align: right;">30BFh</td>
+<td><code>GR_SETPT</code></td>
+<td>Punkt setzen (Modus C6h = SET).</td>
+</tr>
+<tr>
+<td style="text-align: right;">30C7h</td>
+<td><code>GR_PLOT</code></td>
+<td>Punkt setzen/löschen/abfragen (Modus A), Grafik-RAM einblenden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">30E5h</td>
+<td><code>SM_GR_MASK</code></td>
+<td>Operand: Maske für die Grafikebene.</td>
+</tr>
+<tr>
+<td style="text-align: right;">30F1h</td>
+<td><code>SM_GR_BITOP</code></td>
+<td>Operand: Bitbefehl (SET/RES/BIT n) für den Punkt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3100h</td>
+<td><code>GR_ADDR</code></td>
+<td>Adresse und Bitmaske des Punkts (X,Y) berechnen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3107h</td>
+<td><code>GR_BYTEADDR</code></td>
+<td>Byteadresse (X/8 + Y*Zeilenlänge) im Grafik-RAM.</td>
+</tr>
+<tr>
+<td style="text-align: right;">311Dh</td>
+<td><code>GR_LINE</code></td>
+<td>Linie von (DE) nach (HL) zeichnen (Bresenham-Verfahren, vermutlich).</td>
+</tr>
+<tr>
+<td style="text-align: right;">31D4h</td>
+<td><code>COPY5</code></td>
+<td>5 Bytes kopieren (LDIR).</td>
+</tr>
+<tr>
+<td style="text-align: right;">31DAh</td>
+<td><code>GL_X0</code></td>
+<td>GL_...: Arbeitsvariablen von GR_LINE (Startpunkt, Differenzen, Richtungen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">31E9h</td>
+<td><code>NEG16_BC</code></td>
+<td>BC = -DE (für Linienrichtung).</td>
+</tr>
+<tr>
+<td style="text-align: right;">31FEh</td>
+<td><code>GL_STEP</code></td>
+<td>Einen Schritt der Linie ausführen und den Punkt zeichnen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3208h</td>
+<td><code>SM_GR_PLOTFN</code></td>
+<td>Operand: Punktroutine für GR_LINE (GR_SET bei LINE, GR_RESET bei BLINE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">320Dh</td>
+<td><code>GL_OFFSET</code></td>
+<td>Koordinaten um 4000h verschieben (Vorzeichen für Vergleiche).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3218h</td>
+<td><code>GR_SELECT</code></td>
+<td>Grafik einschalten/Ebene wählen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">321Fh</td>
+<td><code>GR_CLEAR</code></td>
+<td>Grafik-RAM ab E000h löschen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3231h</td>
+<td><code>SM_GR_FILL</code></td>
+<td>Operand: Füllwert beim Löschen bzw. Füllen des Grafik-RAM.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3240h</td>
+<td><code>GR_PATTERN</code></td>
+<td>Muster (DE) in das Grafik-RAM schreiben (PATTERN).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3280h</td>
+<td><code>SM_GR_JR</code></td>
+<td>Operand: Sprungweite (Variante der Füllschleife).</td>
+</tr>
+<tr>
+<td style="text-align: right;">32BCh</td>
+<td><code>SM_GR_STEP</code></td>
+<td>Operand: Schrittweite (PATTERN).</td>
+</tr>
+<tr>
+<td style="text-align: right;">32DCh</td>
+<td><code>GR_PATBYTE</code></td>
+<td>Ein Musterbyte bitweise ausgeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">32E9h</td>
+<td><code>GR_WRITEBYTE</code></td>
+<td>Byte in das Grafik-RAM schreiben (Maske über die Operanden L32FA/L32FC).</td>
+</tr>
+<tr>
+<td style="text-align: right;">32FAh</td>
+<td><code>SM_GR_AND</code></td>
+<td>Operand: UND-Maske beim Schreiben ins Grafik-RAM.</td>
+</tr>
+<tr>
+<td style="text-align: right;">32FCh</td>
+<td><code>SM_GR_OR</code></td>
+<td>Operand: ODER-Maske beim Schreiben ins Grafik-RAM.</td>
+</tr>
+<tr>
+<td style="text-align: right;">330Bh</td>
+<td><code>PRT_NL_IFCOL</code></td>
+<td>Drucker: neue Zeile nur, wenn die Spalte (PRT_COLUMN) nicht 0 ist.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3310h</td>
+<td><code>PRT_NEWLINE</code></td>
+<td>Drucker: Zeilenvorschub (nach Statusprüfung).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3335h</td>
+<td><code>PRT_CTRL</code></td>
+<td>Steuerzeichen 05h-15h für den Drucker umsetzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">339Eh</td>
+<td><code>PRT_LINE</code></td>
+<td>Text DE bis 0Dh auf den Drucker, dann PRT_STATUS.</td>
+</tr>
+<tr>
+<td style="text-align: right;">33A4h</td>
+<td><code>PRT_TEXT</code></td>
+<td>Text DE bis 0Dh auf den Drucker (Spalte mitzählen, max. 80).</td>
+</tr>
+<tr>
+<td style="text-align: right;">33C3h</td>
+<td><code>PRT_ESC2</code></td>
+<td>ESC-Folge mit Parameter senden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">33CDh</td>
+<td><code>PRT_QUERY</code></td>
+<td>ESC-Kommando A senden und Status von Port FEh lesen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">33DDh</td>
+<td><code>PRT_ESC</code></td>
+<td>ESC (1Bh) an den Drucker.</td>
+</tr>
+<tr>
+<td style="text-align: right;">33DFh</td>
+<td><code>PRT_OUT</code></td>
+<td>Zeichen A an den Drucker: warten bis bereit, Port FFh, Strobe über Port FEh. Drucker aus -&gt; ERR_42.</td>
+</tr>
+<tr>
+<td style="text-align: right;">33F3h</td>
+<td><code>PRT_WAIT</code></td>
+<td>Auf den Drucker warten (Status Port FEh, Bit A); Zeitüberlauf -&gt; ERR_42.</td>
+</tr>
+<tr>
+<td style="text-align: right;">33F4h</td>
+<td><code>PRT_WAIT_A</code></td>
+<td>Auf Status-Bit A an Port FEh warten; Zeitüberlauf -&gt; ERR_42.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3410h</td>
+<td><code>PRT_STATUS</code></td>
+<td>Druckerstatus prüfen: Papierende -&gt; ERR_43, Störung -&gt; ERR_44.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3422h</td>
+<td><code>PRT_NL_VEC</code></td>
+<td>Sprung nach PRT_NEWLINE (Sprungvektor hinter PRT_COLUMN).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3425h</td>
+<td><code>PRT_IMAGE</code></td>
+<td>IMAGE: Bitmuster als Grafikzeile an den Drucker.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3442h</td>
+<td><code>PRT_COPY</code></td>
+<td>COPY: Bildschirm (Text bzw. Grafik) als Hardcopy drucken.</td>
+</tr>
+<tr>
+<td style="text-align: right;">34BDh</td>
+<td><code>PRT_ESCARG_OUT</code></td>
+<td>ESC und PRT_ESCARG senden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">34CCh</td>
+<td><code>PRT_GRMODE</code></td>
+<td>Drucker in den Grafikmodus schalten (ESC 18h 40h ...).</td>
+</tr>
+<tr>
+<td style="text-align: right;">34DEh</td>
+<td><code>HC_COLUMN</code></td>
+<td>Eine Spalte der Hardcopy (8 Punkte) aufbauen und senden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">350Bh</td>
+<td><code>HC_NORMAL</code></td>
+<td>Lesebefehle für normale Darstellung einstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">350Dh</td>
+<td><code>HC_REVERSE</code></td>
+<td>Lesebefehle für inverse Darstellung (CPL) einstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3516h</td>
+<td><code>GR_READBYTE</code></td>
+<td>Byte aus dem Grafik-RAM lesen (für die Hardcopy).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3523h</td>
+<td><code>SM_HC_BIT</code></td>
+<td>Operand: Bitbefehl beim Lesen für die Hardcopy.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3580h</td>
+<td><code>RCMD_C</code></td>
+<td>RC40/RC80: 40 bzw. 80 Zeichen je Zeile.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="systemkommandos-grafik-und-sonderbefehle">Systemkommandos, Grafik- und Sonderbefehle</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">35A1h</td>
+<td><code>PCMD_R</code></td>
+<td>R – Systemkommandos: RC40/RC80, RN (normal), RR (invers), RS a,e (Rollbereich).</td>
+</tr>
+<tr>
+<td style="text-align: right;">35E7h</td>
+<td><code>GET_DEC_BYTE</code></td>
+<td>Dezimalzahl &lt; 256 lesen (sonst ERR_13), Kommando sonst ERR_40.</td>
+</tr>
+<tr>
+<td style="text-align: right;">35FAh</td>
+<td><code>SCR_NORMAL</code></td>
+<td>Normaldarstellung (MODE Bit 7 aus, PPI Port A).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3601h</td>
+<td><code>SCR_REVERSE</code></td>
+<td>Inversdarstellung (MODE Bit 7 an).</td>
+</tr>
+<tr>
+<td style="text-align: right;">360Ch</td>
+<td><code>PCMD_F</code></td>
+<td>F – Belegung der Funktionstasten anzeigen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3656h</td>
+<td><code>GET_UPCHAR</code></td>
+<td>Leerzeichen überspringen, nächstes Zeichen holen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">365Bh</td>
+<td><code>SYN_XYARGS</code></td>
+<td>GSET(, GRSET(, POSITION(, CURSOR( prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3666h</td>
+<td><code>SYN_LINES</code></td>
+<td>LINE(, BLINE( prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3675h</td>
+<td><code>SYN_RPAR</code></td>
+<td>&quot;)&quot; muss folgen (sonst ERR_08).</td>
+</tr>
+<tr>
+<td style="text-align: right;">367Bh</td>
+<td><code>SYN_FKEY_PAT</code></td>
+<td>FKEY(, PATTERN( prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">369Bh</td>
+<td><code>SYN_INT_COMMA</code></td>
+<td>INTEGER-Ausdruck und &quot;,&quot; prüfen (sonst ERR_15).</td>
+</tr>
+<tr>
+<td style="text-align: right;">36A3h</td>
+<td><code>SYN_INTEXPR</code></td>
+<td>INTEGER-Ausdruck prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3719h</td>
+<td><code>SYN_OPTION</code></td>
+<td>Kennbuchstaben eines Arguments (z. B. GRAPH(I/O/C/F ...)) holen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3722h</td>
+<td><code>SYN_OPTARG</code></td>
+<td>Option übernehmen und nächstes Token holen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3730h</td>
+<td><code>SYN_FN_POS</code></td>
+<td>POSH, POSV, CSRH, CSRV prüfen (ganzzahlig, ohne Argument).</td>
+</tr>
+<tr>
+<td style="text-align: right;">37E0h</td>
+<td><code>RUN_INTEXPR</code></td>
+<td>INTEGER-Ausdruck auswerten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">37E3h</td>
+<td><code>RUN_NEXTEXPR</code></td>
+<td>Trennzeichen überspringen, nächsten Ausdruck auswerten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">37E9h</td>
+<td><code>RUN_XY</code></td>
+<td>Zwei Koordinaten vom Stapel holen und prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">37F8h</td>
+<td><code>RT_POPINT</code></td>
+<td>Obersten INTEGER lesen (RT_SP bleibt): B = niederwertiges Byte, A = höherwertiges, NZ wenn &gt; 255.</td>
+</tr>
+<tr>
+<td style="text-align: right;">37FDh</td>
+<td><code>RT_INTHI</code></td>
+<td>Höherwertiges Byte des INTEGERs lesen, NZ wenn ungleich 0.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3802h</td>
+<td><code>RT_POPBYTE</code></td>
+<td>Wie RT_POPINT, Eintrag vom Stapel nehmen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3809h</td>
+<td><code>RT_POP2BYTES</code></td>
+<td>Zwei Byte-Werte vom Stapel (B, C).</td>
+</tr>
+<tr>
+<td style="text-align: right;">380Ch</td>
+<td><code>RT_POP2B_2</code></td>
+<td>Zweiten Byte-Wert holen, Eintrag entfernen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">384Ch</td>
+<td><code>RT_PUSHBYTE</code></td>
+<td>Byte A als INTEGER auf den Laufzeitstapel.</td>
+</tr>
+<tr>
+<td style="text-align: right;">384Fh</td>
+<td><code>RT_PUSHDE</code></td>
+<td>DE als INTEGER auf den Laufzeitstapel.</td>
+</tr>
+<tr>
+<td style="text-align: right;">38B5h</td>
+<td><code>SM_LINE_X</code></td>
+<td>Operand: X des letzten Punkts von LINE/BLINE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">38B8h</td>
+<td><code>SM_LINE_Y</code></td>
+<td>Operand: Y des letzten Punkts von LINE/BLINE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">38E1h</td>
+<td><code>RUN_COORD</code></td>
+<td>Koordinate holen und prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">38F0h</td>
+<td><code>RT_POPX</code></td>
+<td>Erste Koordinate (DE) vom Stapel lesen und prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">38FCh</td>
+<td><code>RT_POPY</code></td>
+<td>Nächste Koordinate (DE) vom Stapel nehmen; erlaubt ist -16384..16383, sonst ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3A66h</td>
+<td><code>FKEY_PTR</code></td>
+<td>FKEY_PTR (Anfang des Texts der Taste n in FKTAB), FKEY_FREE (freier Platz), FKEY_NEXT (Text der nächsten Taste), FKEY_END (Ende aller Texte): für RUN_FKEY. Die Texte stehen ab FARE (1200h) je mit 0Dh abgeschlossen und dürfen bis 12FFh reichen (sonst ERR_39).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3B2Ah</td>
+<td><code>LINE_LEN_CR</code></td>
+<td>Zeichen bis einschließlich 0Dh ab HL zählen (E).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3B38h</td>
+<td><code>SKIP_LINES_B</code></td>
+<td>Zeilen überspringen, bis C = B.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="prueflauf-deklarationen-symboltabellen-anweisungen-ausdruecke">Prüflauf: Deklarationen, Symboltabellen, Anweisungen, Ausdrücke</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">3B80h</td>
+<td><code>PCMD_G</code></td>
+<td>G – Programm ausführen. Erst Prüflauf über den ganzen Text (Deklarationen, Syntax, Typen), Symboltabellen anlegen; beim &quot;.&quot; nach dem Hauptblock weiter zur Ausführung (RUN_START).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3BF5h</td>
+<td><code>SCAN_TOKEN</code></td>
+<td>Nächstes Schlüsselwort/Token (&gt;= 60h) im Text ab DE suchen, Zeilen zählen; Textende -&gt; ERR_01.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3C28h</td>
+<td><code>DECL_PROC</code></td>
+<td>PROCEDURE: Namen eintragen (Art E4h), Parameterliste, Rumpf prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3C56h</td>
+<td><code>DECL_FUNC</code></td>
+<td>FUNCTION: Namen eintragen (Art E5h), Parameter, &quot;:&quot; Ergebnistyp.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3C96h</td>
+<td><code>MAIN_BLOCK</code></td>
+<td>Hauptblock prüfen; folgt &quot;.&quot; -&gt; RUN_START, sonst ERR_01.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3CA5h</td>
+<td><code>GET_IDENT</code></td>
+<td>Bezeichner ab DE nach WORKBUF (letztes Zeichen mit Bit 7), max. 32 Zeichen (sonst ERR_06); kein Buchstabe -&gt; ERR_05. BC = Länge.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3CE5h</td>
+<td><code>SET_LINK</code></td>
+<td>Text-/Kommentartoken: Verweis hinter das schließende Zeichen in die beiden Operandenbytes eintragen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3CFBh</td>
+<td><code>SYN_SKIPCMT</code></td>
+<td>Kommentar überspringen (SET_LINK), weiter mit SYN_GETTOK.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3CFEh</td>
+<td><code>SYN_GETTOK</code></td>
+<td>Nächstes Zeichen/Token ab DE nach A (Prüflauf). Kommentare werden übersprungen, bei 0Dh wird LINE_NO erhöht und die Einrückung übergangen; Textende -&gt; ERR_01.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D1Ah</td>
+<td><code>SYN_DECLS</code></td>
+<td>Deklarationsteil: VAR-Abschnitt (SYN_VAR), dann Adressen der Variablen festlegen (Größen aufsummieren).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D25h</td>
+<td><code>SM_SYMTAB_IY</code></td>
+<td>Operand: Zeiger auf den Anfang der aktuellen Symboltabelle (RT_AREA0 bzw. RT_SP).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D52h</td>
+<td><code>DECLARE3</code></td>
+<td>DE um 3 weiter, dann DECLARE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D55h</td>
+<td><code>DECLARE</code></td>
+<td>Bezeichner lesen und in die Symboltabelle (Zeiger bei L3D59) eintragen; schon vorhanden -&gt; ERR_02. Platz über die Routine bei L3D78 schaffen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D59h</td>
+<td><code>SM_SYMTAB</code></td>
+<td>Operand: Zeiger auf den Anfang der aktuellen Symboltabelle.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D78h</td>
+<td><code>SM_SYMGROW</code></td>
+<td>Operand: SYM_GROW1/2/3 je nach Tabelle.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D7Fh</td>
+<td><code>SYM_FIND</code></td>
+<td>Namen aus WORKBUF in der Symboltabelle ab HL suchen. NC = gefunden (HL zeigt hinter den Namen), C = nicht gefunden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D9Eh</td>
+<td><code>SYM_GROW1</code></td>
+<td>RT_AREA1, RT_SP und RT_AREA3 um BC verschieben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3DA5h</td>
+<td><code>SYM_GROW2</code></td>
+<td>RT_SP und RT_AREA3 um BC verschieben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3DACh</td>
+<td><code>SYM_GROW3</code></td>
+<td>RT_AREA3 um BC verschieben; reicht der Speicher bis WORKBUF nicht -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3DBFh</td>
+<td><code>SYM_MAKEROOM</code></td>
+<td>Platz (BC + 5 Bytes) in der Symboltabelle schaffen (LDDR).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3DD9h</td>
+<td><code>SYN_VAR</code></td>
+<td>VAR-Abschnitt: &quot;Name, Name : Typ ;&quot; bis kein Bezeichner mehr folgt; FILE OF (D7h, 71h) wird vermerkt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3E0Ch</td>
+<td><code>SYN_PARAMS</code></td>
+<td>Formale Parameterliste &quot;( Name : Typ ; ... )&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3E36h</td>
+<td><code>SET_TYPEPOS</code></td>
+<td>DE an der Stelle DECL_TYPEPOS eintragen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3E3Dh</td>
+<td><code>SKIP_IDENT_REF</code></td>
+<td>Bezeichner überspringen; DE = Verweis aus dem folgenden E2h-Token.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3E58h</td>
+<td><code>SYN_IDLIST</code></td>
+<td>Liste &quot;Name, Name, ... :&quot; deklarieren (B = Anzahl).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3E89h</td>
+<td><code>TYPE_CODE</code></td>
+<td>Typtoken (63h-66h) in Typcode 0-3 wandeln; C = kein einfacher Typ.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3E92h</td>
+<td><code>SYN_SIMPLETYPE</code></td>
+<td>Einfachen Typ lesen; Größe über TYPE_SIZE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3EAAh</td>
+<td><code>DECL_SETTYPE</code></td>
+<td>Typ in alle eben deklarierten Namen eintragen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3ED4h</td>
+<td><code>DECL_PUTENTRY</code></td>
+<td>Typ A und Verweis in einen Symboleintrag schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3EE1h</td>
+<td><code>SYN_FORMALS</code></td>
+<td>Formale Parameter einer PROCEDURE/FUNCTION im Vorlauf prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3F1Bh</td>
+<td><code>SCAN_NEXT</code></td>
+<td>Token mit Operanden überspringen, nächstes Token suchen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3F23h</td>
+<td><code>TYPE_SIZE_X</code></td>
+<td>TYPE_SIZE im Zweitregistersatz.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3F29h</td>
+<td><code>SYN_ARRAYTYPE</code></td>
+<td>ARRAY &#91;n, m ...&#93; OF Typ: Grenzen (ganzzahlige Konstanten) lesen, Elementzahl ausrechnen; zu groß -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3FD2h</td>
+<td><code>INC16_CHK</code></td>
+<td>16-Bit-Zähler (HL) erhöhen, Überlauf -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3FDEh</td>
+<td><code>CLR16</code></td>
+<td>(HL) = 0000h.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3FE5h</td>
+<td><code>SYM_LOCAL</code></td>
+<td>Symbolzugriffe (DECLARE, SYN_DECLS) auf die lokale Tabelle umstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3FF5h</td>
+<td><code>SYN_SUBPROG</code></td>
+<td>Nach PROCEDURE/FUNCTION-Kopf: Unterprogramm deklarieren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4079h</td>
+<td><code>SYN_SUBBODY</code></td>
+<td>Rumpf eines Unterprogramms prüfen: lokale Deklarationen, BEGIN ... END, &quot;;&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4092h</td>
+<td><code>SYM_ENDMARK</code></td>
+<td>Ende der lokalen Symboltabelle markieren (00h), RT_AREA3 dahinter.</td>
+</tr>
+<tr>
+<td style="text-align: right;">409Ch</td>
+<td><code>DECL_PROCHEAD</code></td>
+<td>Kopf einer PROCEDURE: Parameterliste eintragen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">40B4h</td>
+<td><code>SYN_BLOCK</code></td>
+<td>Es muss BEGIN folgen (sonst ERR_30), Block prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">40BFh</td>
+<td><code>SYN_STMTLIST</code></td>
+<td>Anweisungen prüfen, solange &quot;;&quot; folgt; A = Token danach.</td>
+</tr>
+<tr>
+<td style="text-align: right;">40CAh</td>
+<td><code>SYN_STATEMENT</code></td>
+<td>Eine Anweisung prüfen: Zuweisung/Prozeduraufruf (Bezeichner), Token 69h-6Eh über SYN_TAB69, 8Fh-B2h über SYN_TAB8F.</td>
+</tr>
+<tr>
+<td style="text-align: right;">40E5h</td>
+<td><code>TAB_JUMP</code></td>
+<td>Sprung über Tabelle HL mit Index A (Prüflauf); DE wird erhöht.</td>
+</tr>
+<tr>
+<td style="text-align: right;">40F0h</td>
+<td><code>SYN_TAB69</code></td>
+<td>Sprungtabellen der Prüfung, Index = Token - Basis (TAB_JUMP).</td>
+</tr>
+<tr>
+<td style="text-align: right;">413Eh</td>
+<td><code>SYN_EXPR_T</code></td>
+<td>Ausdruck vom Typ A prüfen (TYPE_MATCH), nächstes Token holen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4150h</td>
+<td><code>SYN_NOARGS</code></td>
+<td>SYRET, SYRET2, CLOSE prüfen (ohne Argumente).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4151h</td>
+<td><code>SYN_FN_REAL</code></td>
+<td>TAN(, LOG(, RND(, ARCTAN(, COS(, EXP(, LN(, SIN(, SQRT( prüfen: ein numerisches Argument, Ergebnis REAL.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4169h</td>
+<td><code>SYN_2ARGS</code></td>
+<td>POKE(, OUTPUT( prüfen: zwei ganzzahlige Argumente.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4175h</td>
+<td><code>SYN_ARG_RPAR</code></td>
+<td>Argument vom Typ A und &quot;)&quot; prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">417Eh</td>
+<td><code>SYN_ARG_CHAR</code></td>
+<td>CHAR-Argument und &quot;)&quot; prüfen (u. a. COUT().</td>
+</tr>
+<tr>
+<td style="text-align: right;">4182h</td>
+<td><code>SYN_PREDSUCC</code></td>
+<td>PRED(, SUCC( prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4188h</td>
+<td><code>SYN_FN_INTARG</code></td>
+<td>PEEK(, INPUT( prüfen (ein ganzzahliges Argument).</td>
+</tr>
+<tr>
+<td style="text-align: right;">418Bh</td>
+<td><code>SYN_FN_NOARG</code></td>
+<td>KEY, REQTR, CIN prüfen (Funktionen ohne Argument).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4200h</td>
+<td><code>SYN_FILEARG</code></td>
+<td>Ist das erste Argument eine FILE-Variable (Bit 5)? NZ = ja.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4230h</td>
+<td><code>SYN_WRITEX</code></td>
+<td>PWRITE(, WRITELN(, PWRITELN( prüfen (auch Rest von WRITE(). Texte, INTEGER, REAL und CHAR mit &quot;:Breite&quot; bzw. &quot;:Breite:Stellen&quot;; BOOLEAN ist nicht erlaubt (ERR_04).</td>
+</tr>
+<tr>
+<td style="text-align: right;">426Ch</td>
+<td><code>SYN_FMTARG</code></td>
+<td>Formatangabe &quot;:n&quot; in WRITE prüfen (INTEGER).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4273h</td>
+<td><code>SYN_ASSIGN</code></td>
+<td>Zuweisung &quot;Variable := Ausdruck&quot; prüfen (ERR_22, ERR_17) bzw. Prozeduraufruf.</td>
+</tr>
+<tr>
+<td style="text-align: right;">42ACh</td>
+<td><code>SYN_LINKSTMT</code></td>
+<td>Anweisung nach THEN/ELSE/DO prüfen und ihr Ende in die beiden Platzhalterbytes hinter dem Schlüsselwort eintragen (Sprungziel zur Laufzeit).</td>
+</tr>
+<tr>
+<td style="text-align: right;">42B7h</td>
+<td><code>SYN_BOOLEXPR</code></td>
+<td>BOOLEAN-Ausdruck prüfen (sonst ERR_20).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4313h</td>
+<td><code>SYN_EXPR</code></td>
+<td>Ausdruck prüfen (mit Vergleich 7Bh-80h bzw. IN); A = Ergebnistyp.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4344h</td>
+<td><code>SYN_SIMPLE</code></td>
+<td>Einfachen Ausdruck prüfen: Vorzeichen, Terme mit + - OR XOR.</td>
+</tr>
+<tr>
+<td style="text-align: right;">438Bh</td>
+<td><code>CHK_NUMTYPE</code></td>
+<td>Typ muss REAL oder INTEGER sein, sonst ERR_04.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4393h</td>
+<td><code>SYN_TERM</code></td>
+<td>Term prüfen: Faktoren mit * AND DIV MOD / (SYN_TAB85).</td>
+</tr>
+<tr>
+<td style="text-align: right;">43DDh</td>
+<td><code>SYN_RDIV</code></td>
+<td>&quot;/&quot;: beide Operanden müssen REAL sein (1/3 mit INTEGER-Werten -&gt; ERR_17).</td>
+</tr>
+<tr>
+<td style="text-align: right;">43F0h</td>
+<td><code>SYN_FACTOR</code></td>
+<td>Faktor prüfen: Bezeichner (Variable, Funktion, Konstante), Funktion ab B3h (SYN_TABB3), &quot;(&quot; Ausdruck &quot;)&quot;, NOT, Zahl, Zeichen, TRUE/FALSE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4408h</td>
+<td><code>SYN_VARREF</code></td>
+<td>Variable (mit Index) prüfen; nicht deklariert -&gt; ERR_27.</td>
+</tr>
+<tr>
+<td style="text-align: right;">44BEh</td>
+<td><code>SYN_CASECONST</code></td>
+<td>CASE-Marke (Konstante, auch mit Vorzeichen) prüfen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">451Bh</td>
+<td><code>SKIP_ALNUM</code></td>
+<td>Buchstaben und Ziffern ab HL überspringen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4526h</td>
+<td><code>SYN_PROCCALL</code></td>
+<td>Prozeduraufruf prüfen: Name muss eine PROCEDURE sein (sonst ERR_28).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4534h</td>
+<td><code>SYN_ACTUALS</code></td>
+<td>Aktuelle Parameter prüfen: Anzahl (ERR_29) und Typen (ERR_17).</td>
+</tr>
+<tr>
+<td style="text-align: right;">45A8h</td>
+<td><code>TYPE_MATCH</code></td>
+<td>Typcodes in B und C vergleichen (unteres Halbbyte); verschieden -&gt; ERR_17. A = B OR C.</td>
+</tr>
+<tr>
+<td style="text-align: right;">45B8h</td>
+<td><code>SYM_FIND_SUB</code></td>
+<td>Unterprogramm in RT_AREA1 suchen; fehlt -&gt; ERR_27.</td>
+</tr>
+<tr>
+<td style="text-align: right;">45C5h</td>
+<td><code>RESOLVE_IDENT</code></td>
+<td>Bezeichner erst lokal, dann global suchen und das Token davor (E3h lokal, E2h global) samt Adresse in den Programmtext schreiben. C = unbekannt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">45F8h</td>
+<td><code>SYN_VAR_IDX</code></td>
+<td>Variable auflösen; bei Feldern Indexliste prüfen (SYN_INDEX).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4600h</td>
+<td><code>RESOLVE_VAR</code></td>
+<td>RESOLVE_IDENT; Feld -&gt; Sprung über den Operanden bei L4608.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4608h</td>
+<td><code>SM_ARRAY_HOOK</code></td>
+<td>Operand: Prüfung für Feldvariablen (SYN_INDEX oder SYN_ARRAYALL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">460Fh</td>
+<td><code>SYN_ARRAYALL</code></td>
+<td>Ganzes Feld &quot;&#91;&#93;&quot; (für READ/WRITE mit Dateien).</td>
+</tr>
+<tr>
+<td style="text-align: right;">461Fh</td>
+<td><code>SYN_INDEX</code></td>
+<td>Indexliste &quot;&#91;i, j ...&#93;&quot; prüfen: INTEGER-Ausdrücke, Anzahl = Dimension (ERR_29).</td>
+</tr>
+<tr>
+<td style="text-align: right;">464Eh</td>
+<td><code>PUSH_LINENO</code></td>
+<td>LINE_NO unter die Rücksprungadresse auf den Stapel legen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4653h</td>
+<td><code>SKIP_PARAMS</code></td>
+<td>SKIP_IDENT_REF aufrufen, LINE_NO dabei erhalten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4658h</td>
+<td><code>SYN_GETTOK_KL</code></td>
+<td>SYN_GETTOK aufrufen, LINE_NO dabei erhalten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">465Bh</td>
+<td><code>CALL_KEEPLINE</code></td>
+<td>Routine HL aufrufen und LINE_NO danach wiederherstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4661h</td>
+<td><code>SM_KEEPLINE</code></td>
+<td>Operand: Routine, die CALL_KEEPLINE aufruft.</td>
+</tr>
+<tr>
+<td style="text-align: right;">466Ah</td>
+<td><code>POP_LINENO</code></td>
+<td>LINE_NO vom Stapel zurückholen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4670h</td>
+<td><code>SCAN_TOKEN_KL</code></td>
+<td>SCAN_TOKEN aufrufen, LINE_NO dabei erhalten.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="fehler">Fehler</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">475Dh</td>
+<td><code>PR_LINENO_HL</code></td>
+<td>HL vierstellig ausgeben (PR_DEC4).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="gleitkomma">Gleitkomma</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">4803h</td>
+<td><code>FSUB</code></td>
+<td>(DE) = (DE) - (HL), Gleitkomma (Vorzeichen von (HL) umgedreht, dann wie FADD).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4806h</td>
+<td><code>FADD</code></td>
+<td>(DE) = (DE) + (HL), Gleitkomma. Exponentenausgleich, Addition bzw. Subtraktion der Mantissen, Normalisieren; Überlauf -&gt; ERR_13, Unterlauf -&gt; 0.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4893h</td>
+<td><code>FSTORE</code></td>
+<td>A (Exponent) und Mantisse EDCB nach (HL) schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">48E4h</td>
+<td><code>FNEG_MANT</code></td>
+<td>Mantisse BCDE negieren (Zweierkomplement), Vorzeichen umdrehen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4900h</td>
+<td><code>FMUL</code></td>
+<td>(DE) = (DE) * (HL). Überlauf (Betrag ab etwa 0.92233720E+19, Handbuch) -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">49CEh</td>
+<td><code>FDIV</code></td>
+<td>(DE) = (DE) / (HL); Division durch 0 bzw. Überlauf -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4A6Dh</td>
+<td><code>STR2FP</code></td>
+<td>Zahl im Text ab HL in Gleitkomma nach (DE) wandeln.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4B63h</td>
+<td><code>NEXT_NONSPC_IX</code></td>
+<td>IX auf das nächste Zeichen außer Leerzeichen, A = Zeichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4B6Dh</td>
+<td><code>S2F_DIGIT</code></td>
+<td>Ziffer A in die Mantisse übernehmen (Zählung in B/C).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4B7Bh</td>
+<td><code>S2F_FRACDIGIT</code></td>
+<td>Nachkommaziffer übernehmen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4CB6h</td>
+<td><code>FP2STR</code></td>
+<td>Gleitkommazahl (HL) in Text wandeln (Puffer ab 4CA0h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4D92h</td>
+<td><code>FP2STR_PREP</code></td>
+<td>Vorzeichen (&quot; &quot; oder &quot;-&quot;) merken, Betrag bilden, Zehnerexponent über FP_POW10 bestimmen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4E5Eh</td>
+<td><code>FCMP</code></td>
+<td>(DE) mit (HL) vergleichen: Z = gleich, C = (DE) &lt; (HL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4E6Eh</td>
+<td><code>FCMP_MAG</code></td>
+<td>Beträge (DE) und (HL) vergleichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4E81h</td>
+<td><code>FINT</code></td>
+<td>(DE) auf die ganze Zahl abschneiden (vermutlich, wie TRUNC).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F57h</td>
+<td><code>FCOPY</code></td>
+<td>5 Bytes (HL) nach (DE) kopieren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F5Dh</td>
+<td><code>FCMP_NE</code></td>
+<td>Gleitkommavergleich, Ergebnis als BOOLEAN-Konstante (&lt;&gt;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F6Eh</td>
+<td><code>FCMP_GT</code></td>
+<td>Gleitkommavergleich (&gt;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F72h</td>
+<td><code>FCMP_LT</code></td>
+<td>Gleitkommavergleich (&lt;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F7Ah</td>
+<td><code>FCMP_EQ</code></td>
+<td>Gleitkommavergleich (=).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F82h</td>
+<td><code>FCMP_LE</code></td>
+<td>Gleitkommavergleich (&lt;=).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F86h</td>
+<td><code>FCMP_GE</code></td>
+<td>Gleitkommavergleich (&gt;=).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F93h</td>
+<td><code>FRND</code></td>
+<td>RND: neue Zufallszahl aus der vorigen (Startwert 4F8Eh, Faktor 23).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4FCDh</td>
+<td><code>FRND_SHIFT</code></td>
+<td>Mantisse um A - C0h Stellen nach links schieben (Nachkommateil).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4FFDh</td>
+<td><code>FTMP1_ADD</code></td>
+<td>FTMP1 = FTMP1 + (HL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5003h</td>
+<td><code>FTMP1_ADDMUL</code></td>
+<td>FTMP1 = (FTMP1 + (HL)) * FTMP2 (Horner-Schema der Reihen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5006h</td>
+<td><code>FTMP1_MUL2</code></td>
+<td>FTMP1 = FTMP1 * FTMP2.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5009h</td>
+<td><code>FTMP1_MUL</code></td>
+<td>FTMP1 = FTMP1 * (HL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5011h</td>
+<td><code>FSIN</code></td>
+<td>Sinus (DE) über die Reihe in x/(pi/2) (Koeffizienten ab 50E2h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">50C0h</td>
+<td><code>FP_NORM</code></td>
+<td>Mantisse BCDE normalisieren (A = Exponent); 0 -&gt; FP_SETZERO.</td>
+</tr>
+<tr>
+<td style="text-align: right;">50D9h</td>
+<td><code>FP_SETZERO</code></td>
+<td>Ergebnis 0 (A = 80h, Mantisse 0).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5100h</td>
+<td><code>FCOS</code></td>
+<td>Kosinus über FSIN (Argument um pi/2 verschoben, Vorzeichen angepasst).</td>
+</tr>
+<tr>
+<td style="text-align: right;">510Fh</td>
+<td><code>FTAN</code></td>
+<td>Tangens = sin(x) / cos(x).</td>
+</tr>
+<tr>
+<td style="text-align: right;">513Ah</td>
+<td><code>FSQRT</code></td>
+<td>Quadratwurzel (DE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">51BCh</td>
+<td><code>EXP_HALF</code></td>
+<td>Exponent für die Quadratwurzel halbieren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">51FDh</td>
+<td><code>FEXP</code></td>
+<td>e hoch (DE) (Reihe ab 52FEh, ln 2 = 5326h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">52B4h</td>
+<td><code>FEXP_SCALE</code></td>
+<td>Exponent des Ergebnisses einrechnen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">532Eh</td>
+<td><code>FLN</code></td>
+<td>Natürlicher Logarithmus (DE) (Konstanten ab 543Ah: sqrt(2), ln(2)/2 ...).</td>
+</tr>
+<tr>
+<td style="text-align: right;">540Ah</td>
+<td><code>FRECIP</code></td>
+<td>(DE) = 1 / (DE) (vermutlich für FATN bei &#124;x&#124; &gt; 1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">545Dh</td>
+<td><code>FLOG</code></td>
+<td>Zehnerlogarithmus: LN(x) * log10(e) (5468h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">546Fh</td>
+<td><code>FATN</code></td>
+<td>Arcustangens (DE) (Reihe ab 551Ah). Nur auf etwa 5 Stellen genau: ARCTAN(1) ergibt 0.78540579 statt 0.78539816 (test_sb4515_run.py).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5552h</td>
+<td><code>FATN_CORE</code></td>
+<td>Arcustangens-Reihe für das reduzierte Argument.</td>
+</tr>
+<tr>
+<td style="text-align: right;">558Ah</td>
+<td><code>RET_IF_NZ</code></td>
+<td>OR A, RET NZ.</td>
+</tr>
+<tr>
+<td style="text-align: right;">558Ch</td>
+<td><code>FP_FIXSIGN</code></td>
+<td>Ist die Mantisse nicht normalisiert (0), nichts; sonst Vorzeichen in (HL) umdrehen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">559Dh</td>
+<td><code>FP_FRAC</code></td>
+<td>Nachkommateil von ATN_TMP2 bilden; negativ -&gt; ERR_13 (vermutlich).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ausfuehrung-variablen-anweisungen-ausdruecke-operatoren">Ausführung: Variablen, Anweisungen, Ausdrücke, Operatoren</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">5680h</td>
+<td><code>RUN_START</code></td>
+<td>Ausführung beginnen: RUN_MODE = 2, globale Variablen anlegen (RUN_ALLOC), Hauptblock ausführen, danach Dateien schließen und PAS_READY.</td>
+</tr>
+<tr>
+<td style="text-align: right;">569Fh</td>
+<td><code>RUN_ALLOC</code></td>
+<td>VAR-Abschnitt zur Laufzeit: Platz für jede Variable belegen (IX abwärts, Größen aus NEG_SIZE_TAB), Typbyte eintragen; Felder bekommen einen Kopf (Typ, Dimension, Zeiger auf die Daten in RT_AREA0).</td>
+</tr>
+<tr>
+<td style="text-align: right;">56B4h</td>
+<td><code>SM_SIZE_IDX</code></td>
+<td>Operand (Displacement): Typcode als Index in NEG_SIZE_TAB.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5706h</td>
+<td><code>NEG_SIZE_TAB</code></td>
+<td>Negative Größe je Typ (-6, -3, -2, -2).</td>
+</tr>
+<tr>
+<td style="text-align: right;">570Ah</td>
+<td><code>RUN_NOMEM</code></td>
+<td>Kein Platz mehr für den Stapel -&gt; ERR_39.</td>
+</tr>
+<tr>
+<td style="text-align: right;">570Dh</td>
+<td><code>RUN_STMT_BRK</code></td>
+<td>BREAK prüfen, Token holen, dann RUN_BEGIN.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5716h</td>
+<td><code>RUN_BEGIN</code></td>
+<td>BEGIN ... END: Platz prüfen (mind. 100h Bytes zwischen RT_AREA0 und RT_SP), Anweisungen (RUN_STATEMENT) ausführen, solange &quot;;&quot; folgt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5734h</td>
+<td><code>RUN_PCALL</code></td>
+<td>Prozeduraufruf (Token E4h als Anweisung).</td>
+</tr>
+<tr>
+<td style="text-align: right;">574Eh</td>
+<td><code>RUN_CALLSUB</code></td>
+<td>Unterprogramm aufrufen: aktuelle Parameter auswerten, lokale Variablen anlegen, den Stapel umkopieren (DI), Rumpf ausführen und den alten Zustand wiederherstellen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">57F2h</td>
+<td><code>RUN_FCALL</code></td>
+<td>Funktionsaufruf im Ausdruck (Token E5h): Ergebnisplatz anlegen, RUN_CALLSUB.</td>
+</tr>
+<tr>
+<td style="text-align: right;">581Fh</td>
+<td><code>RUN_CONST</code></td>
+<td>Konstante auf den Stapel: Zeichen, Zahl (E6h) oder TRUE/FALSE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5840h</td>
+<td><code>RUN_NUMBER</code></td>
+<td>Zahlkonstante (E6h) auf den Laufzeitstapel legen (INTEGER oder REAL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5866h</td>
+<td><code>TYPE_SIZE</code></td>
+<td>Speicherbedarf zu Typcode A (Tabelle 5873h: REAL 6, INTEGER 3, CHAR 2, BOOLEAN 2 Bytes samt Typbyte) nach C.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5877h</td>
+<td><code>RUN_ASSIGN_G</code></td>
+<td>Zuweisung an eine globale Variable (E2h): Adresse, &quot;:=&quot;, Ausdruck, speichern.</td>
+</tr>
+<tr>
+<td style="text-align: right;">588Ah</td>
+<td><code>RUN_ASSIGN_L</code></td>
+<td>Zuweisung an eine lokale Variable (E3h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">588Fh</td>
+<td><code>RUN_LOAD_G</code></td>
+<td>Globale Variable (E2h) im Ausdruck auf den Stapel legen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5898h</td>
+<td><code>RUN_LOAD_L</code></td>
+<td>Lokale Variable (E3h) auf den Stapel legen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">589Dh</td>
+<td><code>RT_POPVAR</code></td>
+<td>Obersten Stapelwert in die Variable DE (Typ A) schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">58B0h</td>
+<td><code>RT_PUSHVAR</code></td>
+<td>Variable DE (Typ A) auf den Laufzeitstapel legen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">58CBh</td>
+<td><code>VAR_ADDR</code></td>
+<td>Adresse der Variablen zum Token A (E2h global, sonst lokal): DE = Adresse, A = Typ; bei Feldern Index auswerten (ARRAY_INDEX).</td>
+</tr>
+<tr>
+<td style="text-align: right;">58CFh</td>
+<td><code>VAR_ADDR_L</code></td>
+<td>Adresse einer lokalen Variablen (Basis RT_AREA1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">58D5h</td>
+<td><code>VAR_ADDR_G</code></td>
+<td>Adresse einer globalen Variablen (Basis INBUF).</td>
+</tr>
+<tr>
+<td style="text-align: right;">58F2h</td>
+<td><code>ARRAY_HOOK</code></td>
+<td>Operand: Sprungziel der Feldindizierung (ARRAY_INDEX).</td>
+</tr>
+<tr>
+<td style="text-align: right;">58F5h</td>
+<td><code>ARRAY_INDEX</code></td>
+<td>Indizes &quot;&#91;i, j ...&#93;&quot; auswerten, gegen die Grenzen prüfen (ERR_13) und die Elementadresse berechnen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">59ACh</td>
+<td><code>RUN_STATEMENT</code></td>
+<td>Eine Anweisung ausführen: Token 69h-6Eh über RUN_TAB69, 8Fh-B2h über RUN_TAB8F, E2h-E4h über RUN_TABE2; andere Token beenden die Anweisung.</td>
+</tr>
+<tr>
+<td style="text-align: right;">59CBh</td>
+<td><code>RUN_JUMP</code></td>
+<td>Sprung über Tabelle HL mit Index A; DE (+1) wird als Textzeiger übergeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">59E9h</td>
+<td><code>RUN_TAB69</code></td>
+<td>Sprungtabellen der Ausführung, Index = Token - Basis (RUN_JUMP).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5ABCh</td>
+<td><code>SM_FOR_LEN1</code></td>
+<td>Operand: Länge der Laufvariablen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5ABFh</td>
+<td><code>SM_FOR_VAR1</code></td>
+<td>Operand: Adresse der Laufvariablen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5AC6h</td>
+<td><code>SM_FOR_TYPE1</code></td>
+<td>Operand: Typ der Laufvariablen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5ACDh</td>
+<td><code>SM_FOR_CMP</code></td>
+<td>Operand: Vergleich von Laufvariable und Endwert (L5FB4 = OP_PREP + RUN_LT bei TO, L5F6E = OP_PREP + RUN_GT bei DOWNTO); TRUE beendet die Schleife.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5AFDh</td>
+<td><code>SM_FOR_STEP</code></td>
+<td>Operand: FOR_INC bei TO, FOR_DEC bei DOWNTO.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5B2Dh</td>
+<td><code>FOR_SETVAR</code></td>
+<td>Länge und Adresse der Laufvariablen in die Befehle von RUN_FOR eintragen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5B44h</td>
+<td><code>FOR_INC</code></td>
+<td>Laufvariable um 1 erhöhen (TO); Überlauf -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5B5Dh</td>
+<td><code>FOR_DEC</code></td>
+<td>Laufvariable um 1 erniedrigen (DOWNTO).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5B72h</td>
+<td><code>CASE_LABEL</code></td>
+<td>CASE-Marke (Konstante, auch mit Vorzeichen) auf den Stapel.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5BCAh</td>
+<td><code>CASE_SKIP</code></td>
+<td>Bis zum &quot;:&quot; der Marke bzw. zum END des CASE weiterlesen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5BFEh</td>
+<td><code>OP_PREP</code></td>
+<td>Operanden für einen zweistelligen Operator angleichen (L5F40); Z = beide INTEGER.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5C0Bh</td>
+<td><code>RUN_EXPR</code></td>
+<td>Ausdruck auswerten, Ergebnis auf dem Laufzeitstapel: einfacher Ausdruck, ggf. Vergleich (RUN_TAB7A).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5C20h</td>
+<td><code>RUN_COMPARE</code></td>
+<td>Vergleichsoperator A (7Ah-80h) über RUN_TAB7A ausführen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5C38h</td>
+<td><code>RUN_SIMPLE</code></td>
+<td>Einfachen Ausdruck auswerten: Vorzeichen, Terme mit + - OR XOR (RUN_TAB81).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5C7Dh</td>
+<td><code>RUN_TERM</code></td>
+<td>Term auswerten: Faktoren mit * AND DIV MOD / (RUN_TAB_MUL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5CCFh</td>
+<td><code>RUN_FACTOR</code></td>
+<td>Faktor auswerten: &quot;(&quot; Ausdruck &quot;)&quot;, NOT, TRUE/FALSE, Zeichen, Funktion (RUN_TABB3), Variable/Zahl/Funktionsaufruf (RUN_TABE2B).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5D61h</td>
+<td><code>RUN_GETTOK</code></td>
+<td>Nächstes Token (&gt;= 60h) ab HL nach A holen; Kommentare (DEh) über ihren Verweis überspringen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5D73h</td>
+<td><code>RUN_COND</code></td>
+<td>Token holen, BOOLEAN vom Stapel: C = TRUE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E12h</td>
+<td><code>RT_DUP</code></td>
+<td>Obersten Stapelwert verdoppeln.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E3Ch</td>
+<td><code>RT_POPBOOL</code></td>
+<td>BOOLEAN vom Laufzeitstapel nehmen: C = TRUE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E5Eh</td>
+<td><code>RT_PUSHZERO</code></td>
+<td>Null vom Typ des obersten Eintrags auf den Stapel (für Vorzeichen &quot;-&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E80h</td>
+<td><code>RT_DROP</code></td>
+<td>Obersten Stapelwert entfernen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E8Eh</td>
+<td><code>RT_SWAP</code></td>
+<td>Die beiden obersten Stapelwerte vertauschen (vermutlich).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5ECFh</td>
+<td><code>RT_ROT3</code></td>
+<td>Die drei obersten Stapelwerte umordnen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5ED5h</td>
+<td><code>RUN_AND</code></td>
+<td>AND auf dem Laufzeitstapel.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5F2Eh</td>
+<td><code>ICMP</code></td>
+<td>INTEGER (DE) mit (HL) vergleichen (mit Vorzeichen): Z gleich, C kleiner.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5F3Dh</td>
+<td><code>BCMP</code></td>
+<td>Bytes (DE) und (HL) vergleichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5F40h</td>
+<td><code>RT_2OPS</code></td>
+<td>DE = zweitoberster, HL = oberster Stapelwert; A = Typ des obersten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">6029h</td>
+<td><code>RUN_DIV</code></td>
+<td>DIV (ganzzahlig).</td>
+</tr>
+<tr>
+<td style="text-align: right;">6039h</td>
+<td><code>RUN_MOD</code></td>
+<td>MOD.</td>
+</tr>
+<tr>
+<td style="text-align: right;">6040h</td>
+<td><code>RUN_MUL</code></td>
+<td>* auf dem Laufzeitstapel.</td>
+</tr>
+<tr>
+<td style="text-align: right;">6053h</td>
+<td><code>RUN_RDIV</code></td>
+<td>/ (Ergebnis REAL).</td>
+</tr>
+<tr>
+<td style="text-align: right;">605Ch</td>
+<td><code>IDIV</code></td>
+<td>INTEGER-Division (DIV); Division durch 0 -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">6074h</td>
+<td><code>IMOD</code></td>
+<td>INTEGER-Rest (MOD).</td>
+</tr>
+<tr>
+<td style="text-align: right;">6083h</td>
+<td><code>IMUL</code></td>
+<td>INTEGER-Multiplikation (DE) * (HL) mit Vorzeichen; Überlauf -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">6098h</td>
+<td><code>ISIGNS</code></td>
+<td>Vorzeichen beider Operanden verknüpfen (Operand bei L60C1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">60A0h</td>
+<td><code>UMUL16</code></td>
+<td>Vorzeichenlose 16-Bit-Multiplikation (Schieben und Addieren).</td>
+</tr>
+<tr>
+<td style="text-align: right;">60B6h</td>
+<td><code>SM_MUL_CNT</code></td>
+<td>Operand: Schleifenzähler der Multiplikation.</td>
+</tr>
+<tr>
+<td style="text-align: right;">60C1h</td>
+<td><code>SM_ISIGN</code></td>
+<td>Operand: Vorzeichen des Ergebnisses (XOR der Operanden).</td>
+</tr>
+<tr>
+<td style="text-align: right;">60CDh</td>
+<td><code>RT_STORE_BC</code></td>
+<td>Ergebnis BC in den Stapeleintrag schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">60D7h</td>
+<td><code>UMUL_STEP</code></td>
+<td>Ein Schritt der Multiplikation (Schieben/Addieren).</td>
+</tr>
+<tr>
+<td style="text-align: right;">60E6h</td>
+<td><code>RR_BC</code></td>
+<td>BC eine Stelle nach rechts schieben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">60EBh</td>
+<td><code>NEG_DE</code></td>
+<td>DE = -DE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">60ECh</td>
+<td><code>CPL_A_DE</code></td>
+<td>DE = -(A:E) (Einsprung in NEG_DE mit A = D).</td>
+</tr>
+<tr>
+<td style="text-align: right;">60F3h</td>
+<td><code>UDIV16</code></td>
+<td>Vorzeichenlose 16-Bit-Division; Divisor 0 -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td style="text-align: right;">6125h</td>
+<td><code>SM_DIV_CNT</code></td>
+<td>Operand: Schleifenzähler der Division.</td>
+</tr>
+<tr>
+<td style="text-align: right;">6130h</td>
+<td><code>IGETOPS</code></td>
+<td>Operanden: BC = (DE), DE = (HL) im Zweitregistersatz, HL = 0.</td>
+</tr>
+<tr>
+<td style="text-align: right;">613Fh</td>
+<td><code>NEG_BC</code></td>
+<td>BC = -BC.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="startdaten-im-programmbereich">Startdaten im Programmbereich</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">61D9h</td>
+<td><code>PAS_INIT</code></td>
+<td>FKEY_DEF nach FARE kopieren, GOOUT (00AEh) zu &quot;LD BC,12FDh&quot; machen (Opcode 01h) und nach PAS_START.</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="werkzeuge.html">← Werkzeuge und Tests</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

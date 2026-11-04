@@ -1,0 +1,1596 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Befehlsreferenz – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li class="cur"><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#speicheraufteilung">Speicheraufteilung</a></li><li><a href="#editorkommandos">Editorkommandos</a></li><li><a href="#programmtext-und-token">Programmtext und Token</a></li><li><a href="#schluesselwoerter">Schlüsselwörter</a></li><li><a href="#datentypen-und-laufzeitstapel">Datentypen und Laufzeitstapel</a></li><li><a href="#gleitkommaformat">Gleitkommaformat</a></li><li><a href="#fehlermeldungen">Fehlermeldungen</a></li></ul></aside>
+<h1 id="befehlsreferenz">Befehlsreferenz</h1>
+<p>Editorkommandos, Tokenformat, alle Schlüsselwörter mit Prüf- und Ausführungsroutine, Datentypen, Gleitkommaformat und Fehlernummern. Erzeugt von <code>tools/mkref4515.py</code> (<code>make ref</code>); die gleiche Seite steht in <code>docs/BEFEHLE_SB4515.md</code>. Die Kurzbeschreibungen folgen dem Handbuch.</p>
+<h2 id="speicheraufteilung">Speicheraufteilung</h2>
+<table>
+<thead>
+<tr>
+<th>Bereich</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0000h–129Fh</td>
+<td>Monitor SB-1511 (Quelle <code>SB1511.asm</code>); <code>GOOUT</code> springt beim Laden nach <code>PAS_BOOT</code></td>
+</tr>
+<tr>
+<td>12A0h–12FCh</td>
+<td>FFh-Füllung</td>
+</tr>
+<tr>
+<td>12FDh–614Ah</td>
+<td>Interpreter: Editor, Tokenizer, Prüflauf, Ausführung, Gleitkomma, Ein-/Ausgabe</td>
+</tr>
+<tr>
+<td>ab 614Bh</td>
+<td>Programmtext (<code>TXT_START</code> … <code>TXT_END</code>); beim Laden stehen hier noch <code>FKEY_DEF</code> und <code>PAS_INIT</code></td>
+</tr>
+<tr>
+<td>unter <code>STACK_TOP</code></td>
+<td>Stapel, <code>WORKBUF</code> (−320h), <code>INBUF</code> (−56h), Textgrenze <code>TXT_LIMIT</code> (−C8h); darunter globale Variablen, Symboltabellen und Laufzeitstapel</td>
+</tr>
+</tbody>
+</table>
+<p>Start: <code>PAS_INIT</code> belegt die Funktionstasten, macht <code>GOOUT</code> unschädlich und springt nach <code>PAS_START</code> (Speichertest, Kopfmeldung, <code>PAS_READY</code>).</p>
+<h2 id="editorkommandos">Editorkommandos</h2>
+<p>Eingabe im Kommandomodus (<code>CMD_LOOP</code>). Ein Buchstabe wählt über <code>CMD_TAB</code> das Kommando; nicht belegte Buchstaben ergeben Err 40. Programmzeilen haben keine gespeicherte Nummer – die Nummer ist die Position im Text.</p>
+<table>
+<thead>
+<tr>
+<th>Eingabe</th>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>A</code></td>
+<td>PCMD_A</td>
+<td style="text-align: right;">1516h</td>
+<td>Append: Datei vom Band suchen (Typ A0h, Name passend) und hinter das Programm im Speicher laden.</td>
+</tr>
+<tr>
+<td><code>B</code></td>
+<td>PCMD_B</td>
+<td style="text-align: right;">1639h</td>
+<td>Eingabe ab Zeile 0 (vor dem vorhandenen Programm).</td>
+</tr>
+<tr>
+<td><code>D</code></td>
+<td>PCMD_D</td>
+<td style="text-align: right;">173Fh</td>
+<td>Zeilen löschen.</td>
+</tr>
+<tr>
+<td><code>E</code></td>
+<td>PCMD_E</td>
+<td style="text-align: right;">17C2h</td>
+<td>Obergrenze des Speichers setzen (STACK_TOP); muss über TXT_END + 438h und unter dem RAM-Ende liegen.</td>
+</tr>
+<tr>
+<td><code>F</code></td>
+<td>PCMD_F</td>
+<td style="text-align: right;">360Ch</td>
+<td>Belegung der Funktionstasten anzeigen.</td>
+</tr>
+<tr>
+<td><code>G</code></td>
+<td>PCMD_G</td>
+<td style="text-align: right;">3B80h</td>
+<td>Programm ausführen. Erst Prüflauf über den ganzen Text (Deklarationen, Syntax, Typen), Symboltabellen anlegen; beim "." nach dem Hauptblock weiter zur Ausführung (RUN_START).</td>
+</tr>
+<tr>
+<td><code>H</code></td>
+<td>PCMD_H</td>
+<td style="text-align: right;">161Fh</td>
+<td>Listing auf den Drucker (sonst wie P).</td>
+</tr>
+<tr>
+<td><code>I</code></td>
+<td>PCMD_I</td>
+<td style="text-align: right;">1610h</td>
+<td>IPL: PPI Port C Bit 3 zurücksetzen und HALT (Neustart über den IPL).</td>
+</tr>
+<tr>
+<td><code>K</code></td>
+<td>PCMD_K</td>
+<td style="text-align: right;">188Bh</td>
+<td>Programm löschen (wie NEW).</td>
+</tr>
+<tr>
+<td><code>L</code></td>
+<td>PCMD_L</td>
+<td style="text-align: right;">1718h</td>
+<td>Zeiger n Zeilen zurück, Zeile anzeigen.</td>
+</tr>
+<tr>
+<td><code>M</code></td>
+<td>PCMD_M</td>
+<td style="text-align: right;">16C5h</td>
+<td>freien Speicher anzeigen ("nnnnn Bytes").</td>
+</tr>
+<tr>
+<td><code>N</code></td>
+<td>PCMD_N</td>
+<td style="text-align: right;">16FEh</td>
+<td>Zeiger n Zeilen vorwärts, Zeile anzeigen.</td>
+</tr>
+<tr>
+<td><code>P</code></td>
+<td>PCMD_P</td>
+<td style="text-align: right;">1760h</td>
+<td>Listing auf den Bildschirm. Leertaste hält an, BREAK bricht ab.</td>
+</tr>
+<tr>
+<td><code>Q</code></td>
+<td>PCMD_Q</td>
+<td style="text-align: right;">1618h</td>
+<td>zurück in den Monitor.</td>
+</tr>
+<tr>
+<td><code>R</code></td>
+<td>PCMD_R</td>
+<td style="text-align: right;">35A1h</td>
+<td>Systemkommandos: RC40/RC80, RN (normal), RR (invers), RS a,e (Rollbereich).</td>
+</tr>
+<tr>
+<td><code>S</code></td>
+<td>PCMD_S</td>
+<td style="text-align: right;">1569h</td>
+<td>Save: Programmtext als Datei vom Typ A0h auf Band schreiben.</td>
+</tr>
+<tr>
+<td><code>T</code></td>
+<td>PCMD_T</td>
+<td style="text-align: right;">16FBh</td>
+<td>(nicht im Handbuch) Zeiger auf den Anfang, dann wie N.</td>
+</tr>
+<tr>
+<td><code>V</code></td>
+<td>PCMD_V</td>
+<td style="text-align: right;">1514h</td>
+<td>Verify: Kassettendatei mit dem Programm im Speicher vergleichen. Teilt sich den Code mit PCMD_A (A = 0: Vergleich, A = 1: Anhängen).</td>
+</tr>
+<tr>
+<td><code>Z</code></td>
+<td>PCMD_Z</td>
+<td style="text-align: right;">162Ah</td>
+<td>Eingabe am Programmende fortsetzen.</td>
+</tr>
+<tr>
+<td><code>#</code></td>
+<td>CMD_LOOP</td>
+<td style="text-align: right;">1374h</td>
+<td>Zeilennummern im Listing ein/aus</td>
+</tr>
+<tr>
+<td><code>$</code></td>
+<td>CMD_LOOP</td>
+<td style="text-align: right;">1374h</td>
+<td>Einrücken bei der Eingabe ein/aus</td>
+</tr>
+<tr>
+<td><code>n …</code></td>
+<td>PCMD_LINENO</td>
+<td style="text-align: right;">1403h</td>
+<td>Zeile beginnt mit einer Nummer n: "n" allein löscht Zeile n, "n Text" ersetzt Zeile n, "n" mit Pfeil (1Fh) setzt die Eingabe ab Zeile n fort.</td>
+</tr>
+<tr>
+<td>Pfeil (1Fh)</td>
+<td>PCMD_ARROW</td>
+<td style="text-align: right;">169Dh</td>
+<td>Pfeil (1Fh) am Zeilenanfang: CR allein -&gt; Eingabe ab Zeiger, sonst Zeile am Zeiger einfügen.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="programmtext-und-token">Programmtext und Token</h2>
+<p>Jede Zeile: Anzahl der Einrückungs-Leerzeichen, Token und Zeichen, <code>0Dh</code>. Schlüsselwörter werden zu Token 60h–E1h (<code>KWTAB</code>, letztes Zeichen mit Bit 7). Bezeichner bleiben als Text stehen (groß geschrieben); der Prüflauf trägt davor ein Token E2h (global) bzw. E3h (lokal) samt Adresse ein und hinter THEN/ELSE/DO das Sprungziel. Im Listing erscheinen Schlüsselwörter klein.</p>
+<p>Token ab D8h tragen Operandenbytes; ihre Anzahl steht in <code>TOKLEN_TAB</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Bedeutung</th>
+<th style="text-align: right;">Operandenbytes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D8h</td>
+<td><code>PROCEDURE</code></td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>D9h</td>
+<td><code>FUNCTION</code></td>
+<td style="text-align: right;">4</td>
+</tr>
+<tr>
+<td>DAh</td>
+<td><code>THEN</code> (Sprungziel)</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td>DBh</td>
+<td><code>ELSE</code> (Sprungziel)</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td>DCh</td>
+<td><code>DO</code> (Sprungziel)</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td>DDh</td>
+<td><code>:</code></td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td>DEh</td>
+<td>Kommentar <code>{…}</code> (Verweis auf das Ende)</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td>DFh</td>
+<td>Zeichen/Text <code>'…'</code></td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>E0h</td>
+<td>Text <code>"…"</code> (Verweis auf das Ende)</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td>E1h</td>
+<td><code>ARRAY</code></td>
+<td style="text-align: right;">6</td>
+</tr>
+<tr>
+<td>E2h</td>
+<td>globaler Bezeichner (Typ, Abstand zu <code>INBUF</code>)</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>E3h</td>
+<td>lokaler Bezeichner (Typ, Abstand)</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>E4h</td>
+<td>Prozeduraufruf</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>E5h</td>
+<td>Funktionsaufruf</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>E6h</td>
+<td>Zahlkonstante (Typ + 5 Bytes)</td>
+<td style="text-align: right;">6</td>
+</tr>
+</tbody>
+</table>
+<h2 id="schluesselwoerter">Schlüsselwörter</h2>
+<p>Prüfung: Routine des Prüflaufs (<code>TAB_JUMP</code>), Ausführung: Routine zur Laufzeit (<code>RUN_JUMP</code>). Ein <code>*</code> am Wortanfang macht das Schlüsselwort unerreichbar (im Interpreter nicht vorhanden).</p>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Schlüsselwort</th>
+<th>Prüfung</th>
+<th>Ausführung</th>
+<th>Bemerkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>60h</td>
+<td><code>*ROGRAM</code></td>
+<td></td>
+<td></td>
+<td>nicht implementiert</td>
+</tr>
+<tr>
+<td>61h</td>
+<td><code>**TYPE</code></td>
+<td></td>
+<td></td>
+<td>nicht implementiert</td>
+</tr>
+<tr>
+<td>62h</td>
+<td><code>VAR</code></td>
+<td></td>
+<td></td>
+<td>Variablendeklaration; Typen REAL, INTEGER, CHAR, BOOLEAN, ARRAY [..] OF, FILE OF</td>
+</tr>
+<tr>
+<td>63h</td>
+<td><code>REAL</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>64h</td>
+<td><code>INTEGER</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>65h</td>
+<td><code>CHAR</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>66h</td>
+<td><code>BOOLEAN</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>67h</td>
+<td><code>**SET</code></td>
+<td></td>
+<td></td>
+<td>nicht implementiert</td>
+</tr>
+<tr>
+<td>68h</td>
+<td><code>*ACKED</code></td>
+<td></td>
+<td></td>
+<td>nicht implementiert</td>
+</tr>
+<tr>
+<td>69h</td>
+<td><code>BEGIN</code></td>
+<td>SYN_BEGIN</td>
+<td>RUN_BEGIN</td>
+<td>BEGIN Anweisung; ... END</td>
+</tr>
+<tr>
+<td>6Ah</td>
+<td><code>IF</code></td>
+<td>SYN_IF</td>
+<td>RUN_IF</td>
+<td>IF Bedingung THEN Anweisung [ELSE Anweisung]; Sprungziele trägt der Prüflauf ein</td>
+</tr>
+<tr>
+<td>6Bh</td>
+<td><code>WHILE</code></td>
+<td>SYN_WHILE</td>
+<td>RUN_WHILE</td>
+<td>WHILE Bedingung DO Anweisung</td>
+</tr>
+<tr>
+<td>6Ch</td>
+<td><code>REPEAT</code></td>
+<td>SYN_REPEAT</td>
+<td>RUN_REPEAT</td>
+<td>REPEAT Anweisungen UNTIL Bedingung</td>
+</tr>
+<tr>
+<td>6Dh</td>
+<td><code>CASE</code></td>
+<td>SYN_CASE</td>
+<td>RUN_CASE</td>
+<td>CASE Ausdruck OF Marke, ...: Anweisung; ... END</td>
+</tr>
+<tr>
+<td>6Eh</td>
+<td><code>FOR</code></td>
+<td>SYN_FOR</td>
+<td>RUN_FOR</td>
+<td>FOR Variable := a TO|DOWNTO b DO Anweisung (INTEGER oder CHAR)</td>
+</tr>
+<tr>
+<td>6Fh</td>
+<td><code>TO</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>70h</td>
+<td><code>DOWNTO</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>71h</td>
+<td><code>OF</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>72h</td>
+<td><code>END</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>73h</td>
+<td><code>UNTIL</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>74h</td>
+<td><code>FALSE</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>75h</td>
+<td><code>TRUE</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>76h</td>
+<td><code>;</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>77h</td>
+<td><code>.</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>78h</td>
+<td><code>,</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>79h</td>
+<td><code>:=</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>7Ah</td>
+<td><code>**IN</code></td>
+<td></td>
+<td></td>
+<td>nicht implementiert</td>
+</tr>
+<tr>
+<td>7Bh</td>
+<td><code>&lt;</code></td>
+<td></td>
+<td>RUN_LT</td>
+<td></td>
+</tr>
+<tr>
+<td>7Ch</td>
+<td><code>&lt;=</code></td>
+<td></td>
+<td>RUN_LE</td>
+<td></td>
+</tr>
+<tr>
+<td>7Dh</td>
+<td><code>=</code></td>
+<td></td>
+<td>RUN_EQ</td>
+<td></td>
+</tr>
+<tr>
+<td>7Eh</td>
+<td><code>&gt;=</code></td>
+<td></td>
+<td>RUN_GE</td>
+<td></td>
+</tr>
+<tr>
+<td>7Fh</td>
+<td><code>&gt;</code></td>
+<td></td>
+<td>RUN_GT</td>
+<td></td>
+</tr>
+<tr>
+<td>80h</td>
+<td><code>&lt;&gt;</code></td>
+<td></td>
+<td>RUN_NE</td>
+<td></td>
+</tr>
+<tr>
+<td>81h</td>
+<td><code>-</code></td>
+<td></td>
+<td>RUN_MINUS</td>
+<td></td>
+</tr>
+<tr>
+<td>82h</td>
+<td><code>+</code></td>
+<td></td>
+<td>RUN_PLUS</td>
+<td></td>
+</tr>
+<tr>
+<td>83h</td>
+<td><code>OR</code></td>
+<td></td>
+<td>RUN_OR</td>
+<td></td>
+</tr>
+<tr>
+<td>84h</td>
+<td><code>XOR</code></td>
+<td></td>
+<td>RUN_XOR</td>
+<td></td>
+</tr>
+<tr>
+<td>85h</td>
+<td><code>*</code></td>
+<td>SYN_MUL</td>
+<td>RUN_MUL</td>
+<td></td>
+</tr>
+<tr>
+<td>86h</td>
+<td><code>AND</code></td>
+<td>SYN_AND</td>
+<td>RUN_AND</td>
+<td></td>
+</tr>
+<tr>
+<td>87h</td>
+<td><code>DIV</code></td>
+<td>SYN_DIV</td>
+<td>RUN_DIV</td>
+<td>ganzzahlige Division, Rest wird abgeschnitten (-7 DIV 2 = -3)</td>
+</tr>
+<tr>
+<td>88h</td>
+<td><code>MOD</code></td>
+<td>SYN_DIV</td>
+<td>RUN_MOD</td>
+<td></td>
+</tr>
+<tr>
+<td>89h</td>
+<td><code>/</code></td>
+<td>SYN_RDIV</td>
+<td>RUN_RDIV</td>
+<td>beide Operanden REAL</td>
+</tr>
+<tr>
+<td>8Ah</td>
+<td><code>(</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>8Bh</td>
+<td><code>\[</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>8Ch</td>
+<td><code>\]</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>8Dh</td>
+<td><code>)</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>8Eh</td>
+<td><code>NOT</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>8Fh</td>
+<td><code>READ(</code></td>
+<td>SYN_READ</td>
+<td>RUN_READ</td>
+<td>Werte von der Tastatur ("?") oder aus einer Datei lesen</td>
+</tr>
+<tr>
+<td>90h</td>
+<td><code>READLN(</code></td>
+<td>SYN_READLN</td>
+<td>RUN_READLN</td>
+<td>wie READ, danach Zeilenende</td>
+</tr>
+<tr>
+<td>91h</td>
+<td><code>WRITE(</code></td>
+<td>SYN_WRITE</td>
+<td>RUN_WRITE</td>
+<td>Ausgabe; Ausdruck[:Breite[:Stellen]], Texte; kein BOOLEAN</td>
+</tr>
+<tr>
+<td>92h</td>
+<td><code>PWRITE(</code></td>
+<td>SYN_WRITEX</td>
+<td>RUN_PWRITE</td>
+<td>wie WRITE, auf den Drucker</td>
+</tr>
+<tr>
+<td>93h</td>
+<td><code>WRITELN(</code></td>
+<td>SYN_WRITEX</td>
+<td>RUN_WRITELN</td>
+<td>wie WRITE, danach Zeilenende</td>
+</tr>
+<tr>
+<td>94h</td>
+<td><code>PWRITELN(</code></td>
+<td>SYN_WRITEX</td>
+<td>RUN_PWRITELN</td>
+<td>wie WRITELN, auf den Drucker</td>
+</tr>
+<tr>
+<td>95h</td>
+<td><code>CALL(</code></td>
+<td>SYN_CALL</td>
+<td>RUN_CALL</td>
+<td>CALL(adresse) var1, var2 – Maschinenprogramm; var1 nach HL, var2 nach DE</td>
+</tr>
+<tr>
+<td>96h</td>
+<td><code>POKE(</code></td>
+<td>SYN_2ARGS</td>
+<td>RUN_POKE</td>
+<td>POKE(zeichen, adresse) – Byte in den Speicher schreiben</td>
+</tr>
+<tr>
+<td>97h</td>
+<td><code>COUT(</code></td>
+<td>SYN_ARG_CHAR</td>
+<td>RUN_COUT</td>
+<td>COUT(zeichen) – Zeichen an der Cursorposition anzeigen, Cursor bleibt</td>
+</tr>
+<tr>
+<td>98h</td>
+<td><code>OUTPUT(</code></td>
+<td>SYN_2ARGS</td>
+<td>RUN_OUTPUT</td>
+<td>OUTPUT(zeichen, port) – Byte an einen Port ausgeben</td>
+</tr>
+<tr>
+<td>99h</td>
+<td><code>TRAN(</code></td>
+<td>SYN_STRARG</td>
+<td>RUN_TRAN</td>
+<td>Grafikkommando an das Farbterminal senden (Texte bzw. CHAR-Ausdrücke)</td>
+</tr>
+<tr>
+<td>9Ah</td>
+<td><code>SYRET</code></td>
+<td>SYN_NOARGS</td>
+<td>RUN_SYRET</td>
+<td>Farbterminal zurücksetzen, Kaltstart des Systems</td>
+</tr>
+<tr>
+<td>9Bh</td>
+<td><code>SYRET2</code></td>
+<td>SYN_NOARGS</td>
+<td>RUN_SYRET2</td>
+<td>Farbterminal zurücksetzen, auf Monitorkommando warten</td>
+</tr>
+<tr>
+<td>9Ch</td>
+<td><code>TEMPO(</code></td>
+<td>SYN_TEMPO</td>
+<td>RUN_TEMPO</td>
+<td>TEMPO(n), n = 1 (langsam) bis 7 (schnell)</td>
+</tr>
+<tr>
+<td>9Dh</td>
+<td><code>MUSIC(</code></td>
+<td>SYN_STRARG</td>
+<td>RUN_MUSIC</td>
+<td>MUSIC(Text) – Musiktext spielen (Noten wie BASIC)</td>
+</tr>
+<tr>
+<td>9Eh</td>
+<td><code>RANGE(</code></td>
+<td>SYN_RANGE</td>
+<td>RUN_RANGE</td>
+<td>RANGE(S, a, e | C, 40|80 | R | N) – Rollbereich, Zeichen je Zeile, invers/normal</td>
+</tr>
+<tr>
+<td>9Fh</td>
+<td><code>FKEY(</code></td>
+<td>SYN_FKEY_PAT</td>
+<td>RUN_FKEY</td>
+<td>FKEY(n, Text) – Funktionstaste n (1-10, 11-20 mit SHIFT) belegen</td>
+</tr>
+<tr>
+<td>A0h</td>
+<td><code>GRAPH(</code></td>
+<td>SYN_GRAPH</td>
+<td>RUN_GRAPH</td>
+<td>GRAPH(I,a, O,b, C, F) – Grafik-Ein-/Ausgabebereich wählen, löschen, füllen</td>
+</tr>
+<tr>
+<td>A1h</td>
+<td><code>GSET(</code></td>
+<td>SYN_XYARGS</td>
+<td>RUN_GSET</td>
+<td>GSET(x, y) – Punkt setzen</td>
+</tr>
+<tr>
+<td>A2h</td>
+<td><code>GRSET(</code></td>
+<td>SYN_XYARGS</td>
+<td>RUN_GRSET</td>
+<td>GRSET(x, y) – Punkt löschen</td>
+</tr>
+<tr>
+<td>A3h</td>
+<td><code>LINE(</code></td>
+<td>SYN_LINES</td>
+<td>RUN_LINE</td>
+<td>LINE(x1, y1, x2, y2 [, ...]) – Linienzug</td>
+</tr>
+<tr>
+<td>A4h</td>
+<td><code>BLINE(</code></td>
+<td>SYN_LINES</td>
+<td>RUN_BLINE</td>
+<td>BLINE(x1, y1, x2, y2 [, ...]) – Linienzug löschen (schwarz)</td>
+</tr>
+<tr>
+<td>A5h</td>
+<td><code>POSITION(</code></td>
+<td>SYN_XYARGS</td>
+<td>RUN_POSITION</td>
+<td>POSITION(x, y) – Positionszeiger der Grafik setzen</td>
+</tr>
+<tr>
+<td>A6h</td>
+<td><code>PATTERN(</code></td>
+<td>SYN_FKEY_PAT</td>
+<td>RUN_PATTERN</td>
+<td>PATTERN(n, Text) – Punktmuster in die Grafik zeichnen</td>
+</tr>
+<tr>
+<td>A7h</td>
+<td><code>CURSOR(</code></td>
+<td>SYN_XYARGS</td>
+<td>RUN_CURSOR</td>
+<td>CURSOR(x, y) – Cursor setzen</td>
+</tr>
+<tr>
+<td>A8h</td>
+<td><code>FNAME(</code></td>
+<td>SYN_FNAME</td>
+<td>RUN_FNAME</td>
+<td>FNAME(Name) – Datendatei benennen und öffnen (Kassette)</td>
+</tr>
+<tr>
+<td>A9h</td>
+<td><code>IMAGE(</code></td>
+<td>SYN_STRARG</td>
+<td>RUN_IMAGE</td>
+<td>IMAGE(Text) – Punktmuster auf den Drucker</td>
+</tr>
+<tr>
+<td>AAh</td>
+<td><code>COPY(</code></td>
+<td>SYN_COPY</td>
+<td>RUN_COPY</td>
+<td>COPY(n) – Hardcopy der Text- oder Grafikanzeige</td>
+</tr>
+<tr>
+<td>ABh</td>
+<td><code>CLOSE</code></td>
+<td>SYN_NOARGS</td>
+<td>RUN_CLOSE</td>
+<td>Datendatei schließen</td>
+</tr>
+<tr>
+<td>B3h</td>
+<td><code>KEY</code></td>
+<td>SYN_FN_NOARG</td>
+<td>RUN_KEY</td>
+<td>Taste lesen (CHAR)</td>
+</tr>
+<tr>
+<td>B4h</td>
+<td><code>REQTR</code></td>
+<td>SYN_FN_NOARG</td>
+<td>RUN_REQTR</td>
+<td>ein Byte vom Farbterminal lesen (CHAR)</td>
+</tr>
+<tr>
+<td>B5h</td>
+<td><code>PEEK(</code></td>
+<td>SYN_FN_INTARG</td>
+<td>RUN_PEEK</td>
+<td>PEEK(adresse) – Byte aus dem Speicher (CHAR)</td>
+</tr>
+<tr>
+<td>B6h</td>
+<td><code>CIN</code></td>
+<td>SYN_FN_NOARG</td>
+<td>RUN_CIN</td>
+<td>Zeichen an der Cursorposition lesen (CHAR)</td>
+</tr>
+<tr>
+<td>B7h</td>
+<td><code>INPUT(</code></td>
+<td>SYN_FN_INTARG</td>
+<td>RUN_INPUT</td>
+<td>INPUT(port) – Byte von einem Port lesen (CHAR)</td>
+</tr>
+<tr>
+<td>B8h</td>
+<td><code>TAN(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_TAN</td>
+<td>Tangens</td>
+</tr>
+<tr>
+<td>B9h</td>
+<td><code>LOG(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_LOG</td>
+<td>Zehnerlogarithmus</td>
+</tr>
+<tr>
+<td>BAh</td>
+<td><code>RND(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_RND</td>
+<td>Zufallszahl</td>
+</tr>
+<tr>
+<td>BBh</td>
+<td><code>ABS(</code></td>
+<td>SYN_ABS</td>
+<td>RUN_ABS</td>
+<td>Betrag (INTEGER oder REAL)</td>
+</tr>
+<tr>
+<td>BCh</td>
+<td><code>ARCTAN(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_ARCTAN</td>
+<td>Arcustangens (nur etwa 5 Stellen genau)</td>
+</tr>
+<tr>
+<td>BDh</td>
+<td><code>CHR(</code></td>
+<td>SYN_CHR</td>
+<td>RUN_CHR</td>
+<td>INTEGER -&gt; CHAR</td>
+</tr>
+<tr>
+<td>BEh</td>
+<td><code>COS(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_COS</td>
+<td>Kosinus</td>
+</tr>
+<tr>
+<td>BFh</td>
+<td><code>EXP(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_EXP</td>
+<td>e hoch x</td>
+</tr>
+<tr>
+<td>C0h</td>
+<td><code>LN(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_LN</td>
+<td>natürlicher Logarithmus</td>
+</tr>
+<tr>
+<td>C1h</td>
+<td><code>ODD(</code></td>
+<td>SYN_ODD</td>
+<td>RUN_ODD</td>
+<td>ungerade? (BOOLEAN)</td>
+</tr>
+<tr>
+<td>C2h</td>
+<td><code>ORD(</code></td>
+<td>SYN_ORD</td>
+<td>RUN_ORD</td>
+<td>CHAR -&gt; INTEGER</td>
+</tr>
+<tr>
+<td>C3h</td>
+<td><code>PRED(</code></td>
+<td>SYN_PREDSUCC</td>
+<td>RUN_PRED</td>
+<td>Vorgänger</td>
+</tr>
+<tr>
+<td>C4h</td>
+<td><code>SIN(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_SIN</td>
+<td>Sinus</td>
+</tr>
+<tr>
+<td>C5h</td>
+<td><code>SQRT(</code></td>
+<td>SYN_FN_REAL</td>
+<td>RUN_SQRT</td>
+<td>Quadratwurzel</td>
+</tr>
+<tr>
+<td>C6h</td>
+<td><code>TRUNC(</code></td>
+<td>SYN_TRUNC</td>
+<td>RUN_TRUNC</td>
+<td>REAL -&gt; INTEGER (abschneiden)</td>
+</tr>
+<tr>
+<td>C7h</td>
+<td><code>SUCC(</code></td>
+<td>SYN_PREDSUCC</td>
+<td>RUN_SUCC</td>
+<td>Nachfolger</td>
+</tr>
+<tr>
+<td>C8h</td>
+<td><code>FLOAT(</code></td>
+<td>SYN_FLOAT</td>
+<td>RUN_FLOAT</td>
+<td>INTEGER -&gt; REAL</td>
+</tr>
+<tr>
+<td>C9h</td>
+<td><code>POINT(</code></td>
+<td>SYN_POINT</td>
+<td>RUN_POINT</td>
+<td>POINT(x, y) – Punkt gesetzt?</td>
+</tr>
+<tr>
+<td>CAh</td>
+<td><code>POSH</code></td>
+<td>SYN_FN_POS</td>
+<td>RUN_POSH</td>
+<td>X des Positionszeigers</td>
+</tr>
+<tr>
+<td>CBh</td>
+<td><code>POSV</code></td>
+<td>SYN_FN_POS</td>
+<td>RUN_POSV</td>
+<td>Y des Positionszeigers</td>
+</tr>
+<tr>
+<td>CCh</td>
+<td><code>CSRH</code></td>
+<td>SYN_FN_POS</td>
+<td>RUN_CSRH</td>
+<td>Cursorspalte</td>
+</tr>
+<tr>
+<td>CDh</td>
+<td><code>CSRV</code></td>
+<td>SYN_FN_POS</td>
+<td>RUN_CSRV</td>
+<td>Cursorzeile</td>
+</tr>
+<tr>
+<td>D7h</td>
+<td><code>FILE</code></td>
+<td></td>
+<td></td>
+<td>FILE OF Typ (Datendatei auf Kassette)</td>
+</tr>
+<tr>
+<td>D8h</td>
+<td><code>PROCEDURE</code></td>
+<td></td>
+<td></td>
+<td>PROCEDURE Name(Parameter); Block (rekursiv möglich)</td>
+</tr>
+<tr>
+<td>D9h</td>
+<td><code>FUNCTION</code></td>
+<td></td>
+<td></td>
+<td>FUNCTION Name(Parameter): Typ; Block</td>
+</tr>
+<tr>
+<td>DAh</td>
+<td><code>THEN</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>DBh</td>
+<td><code>ELSE</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>DCh</td>
+<td><code>DO</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>DDh</td>
+<td><code>:</code></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>DEh</td>
+<td><code>{</code></td>
+<td></td>
+<td></td>
+<td>Kommentar bis }</td>
+</tr>
+<tr>
+<td>DFh</td>
+<td><code>'</code></td>
+<td></td>
+<td></td>
+<td>Zeichen bzw. Text</td>
+</tr>
+<tr>
+<td>E0h</td>
+<td><code>"</code></td>
+<td></td>
+<td></td>
+<td>Text</td>
+</tr>
+<tr>
+<td>E1h</td>
+<td><code>ARRAY</code></td>
+<td></td>
+<td></td>
+<td>ARRAY [n, m ...] OF Typ</td>
+</tr>
+</tbody>
+</table>
+<h2 id="datentypen-und-laufzeitstapel">Datentypen und Laufzeitstapel</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Code</th>
+<th>Typ</th>
+<th style="text-align: right;">Größe samt Typbyte</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">0</td>
+<td>REAL</td>
+<td style="text-align: right;">6</td>
+</tr>
+<tr>
+<td style="text-align: right;">1</td>
+<td>INTEGER</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td>CHAR</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td>BOOLEAN</td>
+<td style="text-align: right;">2</td>
+</tr>
+</tbody>
+</table>
+<p>Der Laufzeitstapel (<code>RT_SP</code>) wächst nach unten; jeder Eintrag beginnt mit dem Typbyte. Felder sind durch Bit 6 im Typ gekennzeichnet.</p>
+<h2 id="gleitkommaformat">Gleitkommaformat</h2>
+<p>5 Bytes: Byte 0 = Vorzeichen in Bit 7 (<strong>1 = positiv</strong>) und Exponent mit Bias 40h, Bytes 1–4 = Mantisse, niederwertiges Byte zuerst, normalisiert (Bit 31 gesetzt). Wert = Mantisse / 2^32 · 2^(Exponent − 40h); Null hat die Mantisse 0. Bereich laut Handbuch bis ±0.92233720E+19 (größer: Err 13). WRITELN zeigt 8 gültige Ziffern; ARCTAN ist nur auf etwa 5 Stellen genau (Test <code>tools/test_sb4515_run.py</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FADD</td>
+<td style="text-align: right;">4806h</td>
+<td>(DE) = (DE) + (HL), Gleitkomma. Exponentenausgleich, Addition bzw. Subtraktion der Mantissen, Normalisieren; Überlauf -&gt; ERR_13, Unterlauf -&gt; 0.</td>
+</tr>
+<tr>
+<td>FSUB</td>
+<td style="text-align: right;">4803h</td>
+<td>(DE) = (DE) - (HL), Gleitkomma (Vorzeichen von (HL) umgedreht, dann wie FADD).</td>
+</tr>
+<tr>
+<td>FMUL</td>
+<td style="text-align: right;">4900h</td>
+<td>(DE) = (DE) * (HL). Überlauf (Betrag ab etwa 0.92233720E+19, Handbuch) -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td>FDIV</td>
+<td style="text-align: right;">49CEh</td>
+<td>(DE) = (DE) / (HL); Division durch 0 bzw. Überlauf -&gt; ERR_13.</td>
+</tr>
+<tr>
+<td>FCMP</td>
+<td style="text-align: right;">4E5Eh</td>
+<td>(DE) mit (HL) vergleichen: Z = gleich, C = (DE) &lt; (HL).</td>
+</tr>
+<tr>
+<td>FINT</td>
+<td style="text-align: right;">4E81h</td>
+<td>(DE) auf die ganze Zahl abschneiden (vermutlich, wie TRUNC).</td>
+</tr>
+<tr>
+<td>STR2FP</td>
+<td style="text-align: right;">4A6Dh</td>
+<td>Zahl im Text ab HL in Gleitkomma nach (DE) wandeln.</td>
+</tr>
+<tr>
+<td>FP2STR</td>
+<td style="text-align: right;">4CB6h</td>
+<td>Gleitkommazahl (HL) in Text wandeln (Puffer ab 4CA0h).</td>
+</tr>
+<tr>
+<td>FSIN</td>
+<td style="text-align: right;">5011h</td>
+<td>Sinus (DE) über die Reihe in x/(pi/2) (Koeffizienten ab 50E2h).</td>
+</tr>
+<tr>
+<td>FCOS</td>
+<td style="text-align: right;">5100h</td>
+<td>Kosinus über FSIN (Argument um pi/2 verschoben, Vorzeichen angepasst).</td>
+</tr>
+<tr>
+<td>FTAN</td>
+<td style="text-align: right;">510Fh</td>
+<td>Tangens = sin(x) / cos(x).</td>
+</tr>
+<tr>
+<td>FATN</td>
+<td style="text-align: right;">546Fh</td>
+<td>Arcustangens (DE) (Reihe ab 551Ah). Nur auf etwa 5 Stellen genau: ARCTAN(1) ergibt 0.78540579 statt 0.78539816 (test_sb4515_run.py).</td>
+</tr>
+<tr>
+<td>FSQRT</td>
+<td style="text-align: right;">513Ah</td>
+<td>Quadratwurzel (DE).</td>
+</tr>
+<tr>
+<td>FEXP</td>
+<td style="text-align: right;">51FDh</td>
+<td>e hoch (DE) (Reihe ab 52FEh, ln 2 = 5326h).</td>
+</tr>
+<tr>
+<td>FLN</td>
+<td style="text-align: right;">532Eh</td>
+<td>Natürlicher Logarithmus (DE) (Konstanten ab 543Ah: sqrt(2), ln(2)/2 ...).</td>
+</tr>
+<tr>
+<td>FLOG</td>
+<td style="text-align: right;">545Dh</td>
+<td>Zehnerlogarithmus: LN(x) * log10(e) (5468h).</td>
+</tr>
+<tr>
+<td>FRND</td>
+<td style="text-align: right;">4F93h</td>
+<td>RND: neue Zufallszahl aus der vorigen (Startwert 4F8Eh, Faktor 23).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="fehlermeldungen">Fehlermeldungen</h2>
+<p>Ausgabe <code>*Err nn*</code>, im Prüflauf mit <code>Line n.</code>, bei der Ausführung mit <code>Run*</code>. Texte nach dem Handbuch (Error message table, S. 137); was dort fehlt oder unleserlich ist, ist aus dem Code erschlossen.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Nr.</th>
+<th>Einsprung</th>
+<th style="text-align: right;">Adresse</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">01</td>
+<td>ERR_01</td>
+<td style="text-align: right;">4687h</td>
+<td>Programm unvollständig oder "." fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">02</td>
+<td>ERR_02</td>
+<td style="text-align: right;">468Ah</td>
+<td>Bezeichner doppelt deklariert</td>
+</tr>
+<tr>
+<td style="text-align: right;">03</td>
+<td>ERR_03</td>
+<td style="text-align: right;">468Dh</td>
+<td>":" fehlt oder falsches Zeichen statt ":"</td>
+</tr>
+<tr>
+<td style="text-align: right;">04</td>
+<td>ERR_04</td>
+<td style="text-align: right;">4690h</td>
+<td>Typ nicht erlaubt</td>
+</tr>
+<tr>
+<td style="text-align: right;">05</td>
+<td>ERR_05</td>
+<td style="text-align: right;">4693h</td>
+<td>Bezeichner erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">06</td>
+<td>ERR_06</td>
+<td style="text-align: right;">4696h</td>
+<td>Bezeichner zu lang</td>
+</tr>
+<tr>
+<td style="text-align: right;">07</td>
+<td>ERR_07</td>
+<td style="text-align: right;">4699h</td>
+<td>OF fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">08</td>
+<td>ERR_08</td>
+<td style="text-align: right;">469Ch</td>
+<td>")" oder "," fehlt (vermutlich; Code prüft Token 8Dh ")")</td>
+</tr>
+<tr>
+<td style="text-align: right;">09</td>
+<td>ERR_09</td>
+<td style="text-align: right;">469Fh</td>
+<td>Zeichen fehlt (im Handbuch-Scan unleserlich)</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td>ERR_10</td>
+<td style="text-align: right;">46A2h</td>
+<td>"]" fehlt (Code prüft Token 8Ch "]"; Handbuch-Scan: "_ or , is omitted")</td>
+</tr>
+<tr>
+<td style="text-align: right;">11</td>
+<td>ERR_11</td>
+<td style="text-align: right;">46A5h</td>
+<td>"[" fehlt (Code prüft Token 8Bh "["; der Handbuch-Scan zeigt "]")</td>
+</tr>
+<tr>
+<td style="text-align: right;">12</td>
+<td>ERR_12</td>
+<td style="text-align: right;">46A8h</td>
+<td>Ganzzahl erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">13</td>
+<td>ERR_13</td>
+<td style="text-align: right;">46ABh</td>
+<td>Feldindex zu groß oder Wert außerhalb des Bereichs</td>
+</tr>
+<tr>
+<td style="text-align: right;">14</td>
+<td>ERR_14</td>
+<td style="text-align: right;">46AEh</td>
+<td>";" fehlt (vermutlich; Code prüft Token 76h ";")</td>
+</tr>
+<tr>
+<td style="text-align: right;">15</td>
+<td>ERR_15</td>
+<td style="text-align: right;">46B1h</td>
+<td>"," fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">16</td>
+<td>ERR_16</td>
+<td style="text-align: right;">46B4h</td>
+<td>READ/WRITE mischt FILE-Variablen und andere</td>
+</tr>
+<tr>
+<td style="text-align: right;">17</td>
+<td>ERR_17</td>
+<td style="text-align: right;">46B7h</td>
+<td>Wert vom falschen Typ zugewiesen</td>
+</tr>
+<tr>
+<td style="text-align: right;">18</td>
+<td>ERR_18</td>
+<td style="text-align: right;">46BAh</td>
+<td>";" oder END fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">19</td>
+<td>ERR_19</td>
+<td style="text-align: right;">46BDh</td>
+<td>THEN fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">20</td>
+<td>ERR_20</td>
+<td style="text-align: right;">46C0h</td>
+<td>BOOLEAN erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">21</td>
+<td>ERR_21</td>
+<td style="text-align: right;">46C3h</td>
+<td>DO fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">22</td>
+<td>ERR_22</td>
+<td style="text-align: right;">46C6h</td>
+<td>":=" fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">23</td>
+<td>ERR_23</td>
+<td style="text-align: right;">46C9h</td>
+<td>TO oder DOWNTO fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">24</td>
+<td>ERR_24</td>
+<td style="text-align: right;">46CCh</td>
+<td>UNTIL fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">25</td>
+<td>ERR_25</td>
+<td style="text-align: right;">46CFh</td>
+<td>Variable, Funktion oder Konstante erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">26</td>
+<td>ERR_26</td>
+<td style="text-align: right;">46D2h</td>
+<td>mehr als ein Zeichen zwischen Hochkommas</td>
+</tr>
+<tr>
+<td style="text-align: right;">27</td>
+<td>ERR_27</td>
+<td style="text-align: right;">46D5h</td>
+<td>Bezeichner nicht deklariert</td>
+</tr>
+<tr>
+<td style="text-align: right;">28</td>
+<td>ERR_28</td>
+<td style="text-align: right;">46D8h</td>
+<td>Prozedurbezeichner erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">29</td>
+<td>ERR_29</td>
+<td style="text-align: right;">46DBh</td>
+<td>Parameter oder Felddimension passen nicht</td>
+</tr>
+<tr>
+<td style="text-align: right;">30</td>
+<td>ERR_30</td>
+<td style="text-align: right;">46DEh</td>
+<td>BEGIN fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">31</td>
+<td>ERR_31</td>
+<td style="text-align: right;">46E1h</td>
+<td>Ziffer erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">32</td>
+<td>ERR_32</td>
+<td style="text-align: right;">46E4h</td>
+<td>REAL erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">33</td>
+<td>ERR_33</td>
+<td style="text-align: right;">46E7h</td>
+<td>bei der Eingabe "," oder CR erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">34</td>
+<td>ERR_34</td>
+<td style="text-align: right;">46EAh</td>
+<td>Schreibfehler oder BREAK beim Schreiben (Kassette)</td>
+</tr>
+<tr>
+<td style="text-align: right;">35</td>
+<td>ERR_35</td>
+<td style="text-align: right;">46EDh</td>
+<td>Lesefehler oder BREAK beim Lesen (Kassette)</td>
+</tr>
+<tr>
+<td style="text-align: right;">36</td>
+<td>ERR_36</td>
+<td style="text-align: right;">46F0h</td>
+<td>Zahl hat mehr Stellen als im WRITE angegeben</td>
+</tr>
+<tr>
+<td style="text-align: right;">37</td>
+<td>ERR_37</td>
+<td style="text-align: right;">46F3h</td>
+<td>"$" fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">38</td>
+<td>ERR_38</td>
+<td style="text-align: right;">46F6h</td>
+<td>Hexadezimalzahl erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">39</td>
+<td>ERR_39</td>
+<td style="text-align: right;">46F9h</td>
+<td>Speicher zu klein</td>
+</tr>
+<tr>
+<td style="text-align: right;">40</td>
+<td>ERR_40</td>
+<td style="text-align: right;">46FCh</td>
+<td>Kommandofehler</td>
+</tr>
+<tr>
+<td style="text-align: right;">41</td>
+<td>ERR_41</td>
+<td style="text-align: right;">46FFh</td>
+<td>Anführungszeichen oder Klammer fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">42</td>
+<td>ERR_42</td>
+<td style="text-align: right;">4702h</td>
+<td>Drucker aus oder nicht angeschlossen</td>
+</tr>
+<tr>
+<td style="text-align: right;">43</td>
+<td>ERR_43</td>
+<td style="text-align: right;">4705h</td>
+<td>Drucker: Papierende</td>
+</tr>
+<tr>
+<td style="text-align: right;">44</td>
+<td>ERR_44</td>
+<td style="text-align: right;">4708h</td>
+<td>Drucker: mechanische Störung</td>
+</tr>
+<tr>
+<td style="text-align: right;">45</td>
+<td>ERR_45</td>
+<td style="text-align: right;">470Bh</td>
+<td>unzulässiges Zeichen</td>
+</tr>
+<tr>
+<td style="text-align: right;">46</td>
+<td>ERR_46</td>
+<td style="text-align: right;">470Eh</td>
+<td>CLOSE fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">47</td>
+<td>ERR_47</td>
+<td style="text-align: right;">4711h</td>
+<td>Datei nicht geöffnet oder FNAME fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">48</td>
+<td>ERR_48</td>
+<td style="text-align: right;">4714h</td>
+<td>kein Programm im Speicher (nicht im Handbuch; aus CHK_PROG erschlossen)</td>
+</tr>
+<tr>
+<td style="text-align: right;">49</td>
+<td>ERR_49</td>
+<td style="text-align: right;">4717h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">50</td>
+<td>ERR_50</td>
+<td style="text-align: right;">471Ah</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">51</td>
+<td>ERR_51</td>
+<td style="text-align: right;">471Dh</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">52</td>
+<td>ERR_52</td>
+<td style="text-align: right;">4720h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">53</td>
+<td>ERR_53</td>
+<td style="text-align: right;">4723h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">54</td>
+<td>ERR_54</td>
+<td style="text-align: right;">4726h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">55</td>
+<td>ERR_55</td>
+<td style="text-align: right;">4729h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+</tbody>
+</table>
+<p>Kassettenfehler während des Programmlaufs (Err 34/35) fragen mit <code>** Push key [ C)ontinue E)ditor ]</code> nach.</p>
+<footer><div class="pn"><a class="prev" href="zahlen.html">← Zahlen und Arithmetik</a><a class="next" href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor und Programmtext – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li class="cur"><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#kommandoschleife">Kommandoschleife</a></li><li><a href="#zeilen-ohne-nummern">Zeilen ohne Nummern</a></li><li><a href="#tokenizer">Tokenizer</a></li><li><a href="#beispiel">Beispiel</a></li><li><a href="#listing">Listing</a></li><li><a href="#kassette-s-a-v">Kassette: S, A, V</a></li></ul></aside>
+<h1 id="editor-und-programmtext">Editor und Programmtext</h1>
+<h2 id="kommandoschleife">Kommandoschleife</h2>
+<p><code>CMD_LOOP</code> (1374h) liest eine Zeile mit <code>GET_LINE</code> und entscheidet am ersten Zeichen:</p>
+<table>
+<thead>
+<tr>
+<th>Eingabe</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>#</code></td>
+<td>Zeilennummern im Listing ein/aus (Operand von <code>PR_LINENO</code>)</td>
+</tr>
+<tr>
+<td><code>$</code></td>
+<td>Einrücken bei der Eingabe ein/aus (Operand von <code>INDENT_MASK</code>)</td>
+</tr>
+<tr>
+<td>Pfeil (1Fh)</td>
+<td><code>PCMD_ARROW</code>: Eingabe ab der Zeile am Zeiger</td>
+</tr>
+<tr>
+<td>Ziffer</td>
+<td><code>PCMD_LINENO</code>: Zeile <em>n</em> löschen, ersetzen oder Eingabe ab <em>n</em></td>
+</tr>
+<tr>
+<td>Buchstabe</td>
+<td>Kommando über <code>CMD_TAB</code> (13BEh); <code>JP_INLINE_TAB</code> springt über die Tabelle hinter dem Aufruf</td>
+</tr>
+</tbody>
+</table>
+<p>Belegt sind A, B, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, Z; die übrigen Buchstaben
+führen zu Err 40. Die vollständige Liste mit Routinen steht in der
+<a href="befehle.html#editorkommandos">Befehlsreferenz</a>. <code>T</code> (Zeiger an den Anfang, dann wie <code>N</code>) steht
+nicht im Handbuch.</p>
+<h2 id="zeilen-ohne-nummern">Zeilen ohne Nummern</h2>
+<p>Das Programm ist eine Folge von Zeilen ab <code>TXT_START</code> (614Bh) bis <code>TXT_END</code>. Gespeichert
+wird <strong>keine</strong> Zeilennummer: Die Nummer, die der Editor anzeigt (<code>0.</code>, <code>1.</code> …), ist die
+Position der Zeile im Text. Daraus folgt:</p>
+<ul>
+<li>Einfügen und Löschen verschieben alle folgenden Nummern.</li>
+<li>Der Editor hat einen <strong>Zeiger</strong>: <code>CUR_LINE</code> (Nummer) und <code>TXT_PTR</code> (Adresse). <code>L</code> und <code>N</code>
+  bewegen ihn, <code>PTR_TOP</code> setzt ihn auf Zeile 0, <code>LINE_SKIP</code> zählt vom Anfang aus vor.</li>
+<li><code>LINE_INSERT</code> (14C7h) schiebt den Rest des Texts nach oben und fügt vor der Zeile am
+  Zeiger ein; <code>LINE_DELETE</code> (149Bh) entfernt die Zeile am Zeiger.</li>
+</ul>
+<h3 id="eingabe-ueber-die-bildschirmzeile">Eingabe über die Bildschirmzeile</h3>
+<p>Im Eingabemodus (<code>B</code>, <code>Z</code>, <code>n</code> + Pfeil) gibt <code>INPUT_LOOP</code> (163Fh) die Zeilennummer aus,
+z. B. <code>3.</code>, rückt bei eingeschaltetem <code>$</code> passend ein und liest dann die Zeile. Weil
+<code>GETL_PATCH</code> den Monitor die <strong>ganze Bildschirmzeile ab Zeilenanfang</strong> zurückgeben lässt, kommt
+die angezeigte Nummer mit zurück; <code>INPUT_LOOP</code> liest sie mit <code>GET_DEC</code>, stellt den Zeiger auf
+diese Zeile, falls sie nicht <code>CUR_LINE</code> ist, und fügt den Rest der Zeile dort ein. So kann man eine angezeigte Zeile auf dem Bildschirm
+ändern und mit CR neu eingeben. Eine leere Zeile beendet die Eingabe.</p>
+<p><code>PCMD_LINENO</code> arbeitet genauso: „<code>n</code>“ allein löscht Zeile <em>n</em>, „<code>n Text</code>“ ersetzt sie, „<code>n</code>“ mit
+Pfeil setzt die Eingabe dort fort.</p>
+<h2 id="tokenizer">Tokenizer</h2>
+<p><code>TOKENIZE</code> (1C5Eh) setzt die Zeile nach <code>WORKBUF</code> um:</p>
+<ol>
+<li>Kleinbuchstaben außerhalb von Texten und Kommentaren werden groß (<code>UPCASE_LINE</code>).</li>
+<li>Die Zahl der führenden Leerzeichen wird das erste Byte der Zeile (Einrückung).</li>
+<li>Ein Wort aus Buchstaben und Ziffern wird in <code>KWTAB</code> gesucht (<code>KW_FIND</code>, 1D77h); dabei
+   zählt „<code>READ(</code>“ mit Klammer als ein Schlüsselwort. Gefunden: ein Token 60h–E1h. Sonst ist es
+   ein Bezeichner: der Name bleibt als Text stehen, dahinter kommt das Token E2h mit drei
+   Platzhalterbytes.</li>
+<li>Zahlen werden zur Konstante E6h (<code>TOK_NUMBER</code>), mit Typbyte (01h <code>INTEGER</code>, 00h <code>REAL</code>).</li>
+<li>Operatoren aus zwei Zeichen (<code>:=</code>, <code>&lt;=</code>, <code>&gt;=</code>, <code>&lt;&gt;</code>) werden zu einem Token; <code>"…"</code>, <code>'…'</code> und
+   <code>{…}</code> bekommen die Token E0h, DFh, DEh mit Platz für einen Verweis. Zeichen wie <code>!</code>, <code>#</code>,
+   <code>@</code>, <code>\</code> oder <code>^</code> führen zu Err 45.</li>
+</ol>
+<p>Die Schlüsselworttabelle <code>KWTAB</code> (1A6Bh) enthält die Wörter mit gesetztem Bit 7 im letzten
+Zeichen; das Token ist 60h plus die Position. Wörter mit <code>*</code> am Anfang (<code>*ROGRAM</code>, <code>**TYPE</code> …)
+können nie passen, 80h-Einträge sind freie Token.</p>
+<h3 id="zeilenformat">Zeilenformat</h3>
+<pre>
+Einrückung  Token und Zeichen ...  0Dh
+</pre>
+
+<p>Token ab D8h tragen Operandenbytes, deren Anzahl <code>TOKLEN_TAB</code> (1F41h) angibt. Beim
+Tokenisieren sind sie leer; gefüllt werden sie erst im <a href="pruefung.html">Prüflauf</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Operanden</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>E2h / E3h (hinter einem Bezeichner)</td>
+<td>Typ, 2 Bytes Adresse (Deklaration) bzw. Abstand (Verwendung)</td>
+</tr>
+<tr>
+<td>E4h (Prozeduraufruf)</td>
+<td>3 Bytes, Verweis auf die Deklaration</td>
+</tr>
+<tr>
+<td>E6h (Zahl)</td>
+<td>Typ; <code>INTEGER</code>: 3 ungenutzte Bytes und der Wert, <code>REAL</code>: 5 Bytes Gleitkomma</td>
+</tr>
+<tr>
+<td>DAh/DBh/DCh (<code>THEN</code>/<code>ELSE</code>/<code>DO</code>)</td>
+<td>2 Bytes Sprungziel</td>
+</tr>
+<tr>
+<td>DEh, E0h (Kommentar, Text)</td>
+<td>2 Bytes Verweis auf das Ende</td>
+</tr>
+<tr>
+<td>D8h/D9h (<code>PROCEDURE</code>/<code>FUNCTION</code>)</td>
+<td>Anzahl der Parameter, Verweis auf die Parameterliste …</td>
+</tr>
+</tbody>
+</table>
+<h2 id="beispiel">Beispiel</h2>
+<p>Das folgende Programm wurde im Emulator eingegeben und mit <code>G</code> ausgeführt (Ausgabe <code>6</code>); danach
+wurde der Text ausgelesen. Zeile 5 sieht im Speicher so aus:</p>
+<pre><code>for i:=1 to 3 do p(i);
+
+00                Einrückung 0
+6E                FOR
+49 E2 01 FD FF    I   E2h: INTEGER, Abstand FFFDh (-3) zu INBUF
+79                :=
+E6 01 8A 58 00 01 00     Zahl: INTEGER, (3 Bytes Rest), 0001h
+6F                TO
+E6 01 0D 72 76 03 00     Zahl: INTEGER, 0003h
+DC C4 61          DO, Sprungziel 61C4h (das &quot;;&quot; hinter dem Aufruf)
+50 E4 00 60 61    P   E4h: Prozeduraufruf, Deklaration bei 6160h
+8A 49 E2 01 FD FF 8D     ( I )
+76 0D             ;  Zeilenende
+</code></pre>
+<p>Die drei „ungenutzten“ Bytes der Zahlkonstanten sind Reste aus dem Arbeitspuffer. Das ganze
+Programm:</p>
+<pre><code>var i,s:integer;
+procedure p(x:integer);
+begin s:=s+x end;
+begin
+s:=0;
+for i:=1 to 3 do p(i);
+writeln(s)
+end.
+</code></pre>
+<h2 id="listing">Listing</h2>
+<p><code>LIST_LINE</code> (1DB2h) gibt die Zeile am Zeiger mit Nummer aus, <code>DETOKENIZE</code>
+(1DD5h) baut den Klartext in <code>LINEBUF</code> auf: Einrückung, Schlüsselwörter <strong>klein</strong>
+(<code>TO_LOWER</code>), Bezeichner groß, Zahlen über <code>LIST_NUMBER</code>. <code>KW_SPACE_AFTER</code> entscheidet, ob nach
+einem Schlüsselwort ein Leerzeichen folgt. <code>P</code> listet auf den Bildschirm (Leertaste hält an,
+BREAK bricht ab), <code>H</code> auf den Drucker; <code>#</code> schaltet dort die Nummern ab.</p>
+<pre><code>   0.var I:integer;
+   1.begin 
+   2.if I=0 I:=1 
+</code></pre>
+<h2 id="kassette-s-a-v">Kassette: S, A, V</h2>
+<p><code>S</code> schreibt den Programmtext als Datei vom <strong>Typ A0h</strong> (<code>PCMD_S</code>), <code>A</code> sucht eine solche Datei
+mit passendem Namen und hängt sie an das Programm an (<code>PCMD_A</code>), <code>V</code> vergleicht sie mit dem
+Speicher (<code>PCMD_V</code>, gleicher Code). Laden heißt also: <code>K/</code> und dann <code>A</code>. Schreib- und Lesefehler
+sind Err 34 bzw. 35, zu wenig Speicher Err 39, kein Programm Err 48.</p>
+<footer><div class="pn"><a class="prev" href="architektur.html">← Aufbau und Speicher</a><a class="next" href="pruefung.html">Prüflauf und Symboltabellen →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>

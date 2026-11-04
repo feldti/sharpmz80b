@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fehler – SB-4515 PASCAL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-4515<br><span>PASCAL-Interpreter · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="editor.html">Editor und Programmtext</a></li>
+<li><a href="pruefung.html">Prüflauf und Symboltabellen</a></li>
+<li><a href="ausfuehrung.html">Ausführung</a></li>
+<li><a href="zahlen.html">Zahlen und Arithmetik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Grafik, Drucker</a></li>
+<li class="cur"><a href="fehler.html">Fehler</a></li>
+<li><a href="erweitern.html">Ändern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#ausgabe">Ausgabe</a></li><li><a href="#fehlereinspruenge">Fehlereinsprünge</a></li><li><a href="#fehlernummern">Fehlernummern</a></li><li><a href="#haeufige-ursachen">Häufige Ursachen</a></li><li><a href="#kassettenfehler-im-programmlauf">Kassettenfehler im Programmlauf</a></li><li><a href="#break">BREAK</a></li></ul></aside>
+<h1 id="fehler">Fehler</h1>
+<h2 id="ausgabe">Ausgabe</h2>
+<p>Alle Fehler laufen über <code>ERROR</code> (472Bh). Die Nummer ist BCD-kodiert und wird zweistellig
+ausgegeben (einstellige mit Leerzeichen). Was hinter der Nummer steht, hängt von <code>RUN_MODE</code> ab:</p>
+<table>
+<thead>
+<tr>
+<th>Zustand</th>
+<th style="text-align: right;"><code>RUN_MODE</code></th>
+<th>Ausgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kommandomodus</td>
+<td style="text-align: right;">0</td>
+<td><code>*Err 40*</code></td>
+</tr>
+<tr>
+<td>Prüflauf (<code>G</code>)</td>
+<td style="text-align: right;">1</td>
+<td><code>*Err 19* Line   2.</code> – Nummer der Zeile, in der der Fehler erkannt wurde</td>
+</tr>
+<tr>
+<td>Ausführung</td>
+<td style="text-align: right;">2</td>
+<td><code>*Err 13* Run*</code></td>
+</tr>
+</tbody>
+</table>
+<p>Danach geht es nach <code>PAS_READY</code> („Ready.“). Ein Fehler zur Laufzeit beendet das Programm; es gibt
+keine Fehlerbehandlung im Programm.</p>
+<h2 id="fehlereinspruenge">Fehlereinsprünge</h2>
+<p>Für jeden Fehler gibt es einen Einsprung <code>ERR_nn</code> ab 4687h, der nur die Nummer lädt:</p>
+<pre><code>ERR_01: LD   A,01h
+        DEFB 01h          ; LD BC,nn: verschluckt das folgende LD A,n
+ERR_02: LD   A,02h
+        DEFB 01h
+...
+ERR_55: LD   A,55h
+ERROR:  LD   B,A
+</code></pre>
+<p>Das Byte 01h ist der Opcode von <code>LD BC,nn</code>; es verschluckt jeweils den nächsten Befehl, so dass
+jeder Einsprung mit seiner Nummer in A bei <code>ERROR</code> ankommt. Die Prüfroutinen springen meist
+bedingt dorthin (<code>JP NZ,ERR_08</code>).</p>
+<h2 id="fehlernummern">Fehlernummern</h2>
+<p>Texte nach dem Handbuch (Error message table, S. 137). Wo der Scan das fehlende Zeichen nicht
+zeigt, ist es aus dem Code erschlossen; 48–55 beschreibt das Handbuch nicht.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Nr.</th>
+<th>Einsprung</th>
+<th style="text-align: right;">Adresse</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">01</td>
+<td><code>ERR_01</code></td>
+<td style="text-align: right;">4687h</td>
+<td>Programm unvollständig oder &quot;.&quot; fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">02</td>
+<td><code>ERR_02</code></td>
+<td style="text-align: right;">468Ah</td>
+<td>Bezeichner doppelt deklariert</td>
+</tr>
+<tr>
+<td style="text-align: right;">03</td>
+<td><code>ERR_03</code></td>
+<td style="text-align: right;">468Dh</td>
+<td>&quot;:&quot; fehlt oder falsches Zeichen statt &quot;:&quot;</td>
+</tr>
+<tr>
+<td style="text-align: right;">04</td>
+<td><code>ERR_04</code></td>
+<td style="text-align: right;">4690h</td>
+<td>Typ nicht erlaubt</td>
+</tr>
+<tr>
+<td style="text-align: right;">05</td>
+<td><code>ERR_05</code></td>
+<td style="text-align: right;">4693h</td>
+<td>Bezeichner erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">06</td>
+<td><code>ERR_06</code></td>
+<td style="text-align: right;">4696h</td>
+<td>Bezeichner zu lang</td>
+</tr>
+<tr>
+<td style="text-align: right;">07</td>
+<td><code>ERR_07</code></td>
+<td style="text-align: right;">4699h</td>
+<td>OF fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">08</td>
+<td><code>ERR_08</code></td>
+<td style="text-align: right;">469Ch</td>
+<td>&quot;)&quot; oder &quot;,&quot; fehlt (vermutlich; Code prüft Token 8Dh &quot;)&quot;)</td>
+</tr>
+<tr>
+<td style="text-align: right;">09</td>
+<td><code>ERR_09</code></td>
+<td style="text-align: right;">469Fh</td>
+<td>Zeichen fehlt (im Handbuch-Scan unleserlich)</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td><code>ERR_10</code></td>
+<td style="text-align: right;">46A2h</td>
+<td>&quot;&#93;&quot; fehlt (Code prüft Token 8Ch &quot;&#93;&quot;; Handbuch-Scan: &quot;_ or , is omitted&quot;)</td>
+</tr>
+<tr>
+<td style="text-align: right;">11</td>
+<td><code>ERR_11</code></td>
+<td style="text-align: right;">46A5h</td>
+<td>&quot;&#91;&quot; fehlt (Code prüft Token 8Bh &quot;&#91;&quot;; der Handbuch-Scan zeigt &quot;&#93;&quot;)</td>
+</tr>
+<tr>
+<td style="text-align: right;">12</td>
+<td><code>ERR_12</code></td>
+<td style="text-align: right;">46A8h</td>
+<td>Ganzzahl erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">13</td>
+<td><code>ERR_13</code></td>
+<td style="text-align: right;">46ABh</td>
+<td>Feldindex zu groß oder Wert außerhalb des Bereichs</td>
+</tr>
+<tr>
+<td style="text-align: right;">14</td>
+<td><code>ERR_14</code></td>
+<td style="text-align: right;">46AEh</td>
+<td>&quot;;&quot; fehlt (vermutlich; Code prüft Token 76h &quot;;&quot;)</td>
+</tr>
+<tr>
+<td style="text-align: right;">15</td>
+<td><code>ERR_15</code></td>
+<td style="text-align: right;">46B1h</td>
+<td>&quot;,&quot; fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">16</td>
+<td><code>ERR_16</code></td>
+<td style="text-align: right;">46B4h</td>
+<td>READ/WRITE mischt FILE-Variablen und andere</td>
+</tr>
+<tr>
+<td style="text-align: right;">17</td>
+<td><code>ERR_17</code></td>
+<td style="text-align: right;">46B7h</td>
+<td>Wert vom falschen Typ zugewiesen</td>
+</tr>
+<tr>
+<td style="text-align: right;">18</td>
+<td><code>ERR_18</code></td>
+<td style="text-align: right;">46BAh</td>
+<td>&quot;;&quot; oder END fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">19</td>
+<td><code>ERR_19</code></td>
+<td style="text-align: right;">46BDh</td>
+<td>THEN fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">20</td>
+<td><code>ERR_20</code></td>
+<td style="text-align: right;">46C0h</td>
+<td>BOOLEAN erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">21</td>
+<td><code>ERR_21</code></td>
+<td style="text-align: right;">46C3h</td>
+<td>DO fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">22</td>
+<td><code>ERR_22</code></td>
+<td style="text-align: right;">46C6h</td>
+<td>&quot;:=&quot; fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">23</td>
+<td><code>ERR_23</code></td>
+<td style="text-align: right;">46C9h</td>
+<td>TO oder DOWNTO fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">24</td>
+<td><code>ERR_24</code></td>
+<td style="text-align: right;">46CCh</td>
+<td>UNTIL fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">25</td>
+<td><code>ERR_25</code></td>
+<td style="text-align: right;">46CFh</td>
+<td>Variable, Funktion oder Konstante erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">26</td>
+<td><code>ERR_26</code></td>
+<td style="text-align: right;">46D2h</td>
+<td>mehr als ein Zeichen zwischen Hochkommas</td>
+</tr>
+<tr>
+<td style="text-align: right;">27</td>
+<td><code>ERR_27</code></td>
+<td style="text-align: right;">46D5h</td>
+<td>Bezeichner nicht deklariert</td>
+</tr>
+<tr>
+<td style="text-align: right;">28</td>
+<td><code>ERR_28</code></td>
+<td style="text-align: right;">46D8h</td>
+<td>Prozedurbezeichner erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">29</td>
+<td><code>ERR_29</code></td>
+<td style="text-align: right;">46DBh</td>
+<td>Parameter oder Felddimension passen nicht</td>
+</tr>
+<tr>
+<td style="text-align: right;">30</td>
+<td><code>ERR_30</code></td>
+<td style="text-align: right;">46DEh</td>
+<td>BEGIN fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">31</td>
+<td><code>ERR_31</code></td>
+<td style="text-align: right;">46E1h</td>
+<td>Ziffer erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">32</td>
+<td><code>ERR_32</code></td>
+<td style="text-align: right;">46E4h</td>
+<td>REAL erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">33</td>
+<td><code>ERR_33</code></td>
+<td style="text-align: right;">46E7h</td>
+<td>bei der Eingabe &quot;,&quot; oder CR erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">34</td>
+<td><code>ERR_34</code></td>
+<td style="text-align: right;">46EAh</td>
+<td>Schreibfehler oder BREAK beim Schreiben (Kassette)</td>
+</tr>
+<tr>
+<td style="text-align: right;">35</td>
+<td><code>ERR_35</code></td>
+<td style="text-align: right;">46EDh</td>
+<td>Lesefehler oder BREAK beim Lesen (Kassette)</td>
+</tr>
+<tr>
+<td style="text-align: right;">36</td>
+<td><code>ERR_36</code></td>
+<td style="text-align: right;">46F0h</td>
+<td>Zahl hat mehr Stellen als im WRITE angegeben</td>
+</tr>
+<tr>
+<td style="text-align: right;">37</td>
+<td><code>ERR_37</code></td>
+<td style="text-align: right;">46F3h</td>
+<td>&quot;$&quot; fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">38</td>
+<td><code>ERR_38</code></td>
+<td style="text-align: right;">46F6h</td>
+<td>Hexadezimalzahl erwartet</td>
+</tr>
+<tr>
+<td style="text-align: right;">39</td>
+<td><code>ERR_39</code></td>
+<td style="text-align: right;">46F9h</td>
+<td>Speicher zu klein</td>
+</tr>
+<tr>
+<td style="text-align: right;">40</td>
+<td><code>ERR_40</code></td>
+<td style="text-align: right;">46FCh</td>
+<td>Kommandofehler</td>
+</tr>
+<tr>
+<td style="text-align: right;">41</td>
+<td><code>ERR_41</code></td>
+<td style="text-align: right;">46FFh</td>
+<td>Anführungszeichen oder Klammer fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">42</td>
+<td><code>ERR_42</code></td>
+<td style="text-align: right;">4702h</td>
+<td>Drucker aus oder nicht angeschlossen</td>
+</tr>
+<tr>
+<td style="text-align: right;">43</td>
+<td><code>ERR_43</code></td>
+<td style="text-align: right;">4705h</td>
+<td>Drucker: Papierende</td>
+</tr>
+<tr>
+<td style="text-align: right;">44</td>
+<td><code>ERR_44</code></td>
+<td style="text-align: right;">4708h</td>
+<td>Drucker: mechanische Störung</td>
+</tr>
+<tr>
+<td style="text-align: right;">45</td>
+<td><code>ERR_45</code></td>
+<td style="text-align: right;">470Bh</td>
+<td>unzulässiges Zeichen</td>
+</tr>
+<tr>
+<td style="text-align: right;">46</td>
+<td><code>ERR_46</code></td>
+<td style="text-align: right;">470Eh</td>
+<td>CLOSE fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">47</td>
+<td><code>ERR_47</code></td>
+<td style="text-align: right;">4711h</td>
+<td>Datei nicht geöffnet oder FNAME fehlt</td>
+</tr>
+<tr>
+<td style="text-align: right;">48</td>
+<td><code>ERR_48</code></td>
+<td style="text-align: right;">4714h</td>
+<td>kein Programm im Speicher (nicht im Handbuch; aus CHK_PROG erschlossen)</td>
+</tr>
+<tr>
+<td style="text-align: right;">49</td>
+<td><code>ERR_49</code></td>
+<td style="text-align: right;">4717h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">50</td>
+<td><code>ERR_50</code></td>
+<td style="text-align: right;">471Ah</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">51</td>
+<td><code>ERR_51</code></td>
+<td style="text-align: right;">471Dh</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">52</td>
+<td><code>ERR_52</code></td>
+<td style="text-align: right;">4720h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">53</td>
+<td><code>ERR_53</code></td>
+<td style="text-align: right;">4723h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">54</td>
+<td><code>ERR_54</code></td>
+<td style="text-align: right;">4726h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+<tr>
+<td style="text-align: right;">55</td>
+<td><code>ERR_55</code></td>
+<td style="text-align: right;">4729h</td>
+<td>(im Handbuch nicht beschrieben)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="haeufige-ursachen">Häufige Ursachen</h2>
+<table>
+<thead>
+<tr>
+<th>Fehler</th>
+<th>Typischer Anlass</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>01</td>
+<td>Programm ohne <code>END.</code> oder Text endet mitten in einer Anweisung</td>
+</tr>
+<tr>
+<td>04</td>
+<td>falscher Typ, z. B. <code>writeln(b)</code> mit <code>BOOLEAN</code>, <code>DIV</code> mit <code>REAL</code></td>
+</tr>
+<tr>
+<td>13</td>
+<td>Überlauf (INTEGER, REAL über 0.92E+19), Division durch 0, Feldindex außerhalb, Koordinate außerhalb, zu wenig Platz für Symboltabellen</td>
+</tr>
+<tr>
+<td>17</td>
+<td>verschiedene Typen, z. B. <code>1/3</code> mit INTEGER-Werten (<code>/</code> verlangt REAL)</td>
+</tr>
+<tr>
+<td>27</td>
+<td>Bezeichner nicht deklariert</td>
+</tr>
+<tr>
+<td>39</td>
+<td>Programm passt nicht in den Speicher, Laufzeitstapel voll, Funktionstastentexte zu lang</td>
+</tr>
+<tr>
+<td>40</td>
+<td>unbekanntes Editorkommando</td>
+</tr>
+<tr>
+<td>48</td>
+<td><code>G</code> oder <code>S</code> ohne Programm</td>
+</tr>
+</tbody>
+</table>
+<h2 id="kassettenfehler-im-programmlauf">Kassettenfehler im Programmlauf</h2>
+<p>Lese- und Schreibfehler bei Datendateien brechen nicht sofort ab. <code>CMT_ERR34</code>/<code>CMT_ERR35</code> zeigen</p>
+<pre><code>Err 34* Run*
+** Push key [ C)ontinue E)ditor ]
+</code></pre>
+<p>und warten auf eine Taste: <code>C</code> versucht es noch einmal, <code>E</code> kehrt zum Editor zurück.</p>
+<h2 id="break">BREAK</h2>
+<p>BREAK beim Listing, beim Eingeben einer Zeile, in Schleifen und bei Kassettenoperationen führt
+zu <code>*Break</code> und <code>PAS_READY</code> (<code>BREAK_STOP</code>, 19B1h).</p>
+<footer><div class="pn"><a class="prev" href="ein-ausgabe.html">← Ein-/Ausgabe, Grafik, Drucker</a><a class="next" href="erweitern.html">Ändern und Verschieben →</a></div><p class="src">Grundlage: <code>sb4515/SB4515.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku4515.py</code>.</p></footer>
+</main>
+</body>
+</html>
