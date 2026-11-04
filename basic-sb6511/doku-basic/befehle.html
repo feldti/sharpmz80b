@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Befehlsreferenz – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li class="cur"><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#token-format">Token-Format</a></li><li><a href="#anweisungen">Anweisungen</a></li><li><a href="#operatoren-und-funktionen">Operatoren und Funktionen</a></li></ul></aside>
+<h1 id="befehlsreferenz">Befehlsreferenz</h1>
+<p class="note">Übernommen aus <code>docs/BEFEHLE.md</code>.</p>
+
+<p>Automatisch erzeugt von <code>tools/mkref.py</code> aus <code>SB6511_RS232.asm</code> (<code>make ref</code>). Nicht von Hand ändern.</p>
+<h2 id="token-format">Token-Format</h2>
+<ul>
+<li>Anweisungen: zwei Bytes <code>80h, 80h+n</code>, Routine <code>STMT_TAB[n]</code> (Einsprung über DISPATCH).</li>
+<li>Operatoren und Funktionen: ein Byte <code>83h+n</code>. KWTAB_OPS, KWTAB_FUNC und KWTAB_MATH bilden ohne Trenner eine Tabelle; ausgewertet wird über <code>FUNC_TAB</code>.</li>
+<li><code>81h</code>/<code>82h</code> sind Präfixe für zwei leere Erweiterungstabellen (1835h/1837h).</li>
+<li>Zahlen, Variablen und die Zeichen <code>= + - * / ^ , ; ( )</code> bleiben ASCII.</li>
+<li>Ein Schlüsselwort wird überall erkannt, auch in Namen (<code>TOTAL</code> = TO + <code>TAL</code>); Leerzeichen innerhalb eines Schlüsselworts werden überlesen.</li>
+</ul>
+<p>Bereich: Lage der Routine laut Speicheraufteilung (GP-IB 5EEFh–6560h, RS-232C 6600h–68ABh, sonst BASIC-Kern).</p>
+<h2 id="anweisungen">Anweisungen</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Nr.</th>
+<th>Token</th>
+<th>Schlüsselwort</th>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Bereich</th>
+<th>Bemerkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">0</td>
+<td><code>80 80</code></td>
+<td><code>REM</code></td>
+<td>ST_REM</td>
+<td style="text-align: right;">1E6Fh</td>
+<td>BASIC</td>
+<td>Rest bis ":" bleibt Klartext; Routine wie DATA</td>
+</tr>
+<tr>
+<td style="text-align: right;">1</td>
+<td><code>80 81</code></td>
+<td><code>DATA</code></td>
+<td>ST_REM</td>
+<td style="text-align: right;">1E6Fh</td>
+<td>BASIC</td>
+<td>Rest bis ":" bleibt Klartext; Routine wie REM</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td><code>80 82</code></td>
+<td><code>DEF KEY(</code></td>
+<td>ST_DEFKEY</td>
+<td style="text-align: right;">2D29h</td>
+<td>BASIC</td>
+<td>Rest bis ":" bleibt Klartext</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td><code>80 84</code></td>
+<td><code>READ</code></td>
+<td>ST_READ</td>
+<td style="text-align: right;">4178h</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">5</td>
+<td><code>80 85</code></td>
+<td><code>LIST</code></td>
+<td>ST_LIST</td>
+<td style="text-align: right;">1E80h</td>
+<td>BASIC</td>
+<td>LIST[/P] [a][-[b]] – Programmzeilen a bis b listen (/P: Drucker).</td>
+</tr>
+<tr>
+<td style="text-align: right;">6</td>
+<td><code>80 86</code></td>
+<td><code>RUN</code></td>
+<td>ST_RUN</td>
+<td style="text-align: right;">20C0h</td>
+<td>BASIC</td>
+<td>RUN [zeile] / RUN "datei" – SWAP-/Lade-/SRQ-Zustände zurücksetzen, READ und CONT zurücksetzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">7</td>
+<td><code>80 87</code></td>
+<td><code>NEW</code></td>
+<td>ST_NEW</td>
+<td style="text-align: right;">1E75h</td>
+<td>BASIC</td>
+<td>NEW – CONT sperren, Programm und Variablen löschen, "Ready".</td>
+</tr>
+<tr>
+<td style="text-align: right;">8</td>
+<td><code>80 88</code></td>
+<td><code>PRINT</code></td>
+<td>ST_PRINT</td>
+<td style="text-align: right;">3C36h</td>
+<td>BASIC</td>
+<td>"?" wird ebenfalls zu 80h,88h</td>
+</tr>
+<tr>
+<td style="text-align: right;">9</td>
+<td><code>80 89</code></td>
+<td><code>LET</code></td>
+<td>ST_LET</td>
+<td style="text-align: right;">1F99h</td>
+<td>BASIC</td>
+<td>LET var = ausdruck (auch ohne LET).</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td><code>80 8A</code></td>
+<td><code>FOR</code></td>
+<td>ST_FOR</td>
+<td style="text-align: right;">216Fh</td>
+<td>BASIC</td>
+<td>FOR var = a TO b [STEP c] – Eintrag in FOR_VAR..FOR_LIMIT aufbauen (STEP fehlt: 1), einen vorhandenen Eintrag derselben Variablen samt allen jüngeren entfernen und 19 Bytes auf den FOR-Stack legen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">11</td>
+<td><code>80 8B</code></td>
+<td><code>IF</code></td>
+<td>ST_IF</td>
+<td style="text-align: right;">2465h</td>
+<td>BASIC</td>
+<td>danach THEN, GOTO oder GOSUB (L249B); IF EOF(n) als Sonderform</td>
+</tr>
+<tr>
+<td style="text-align: right;">12</td>
+<td><code>80 8C</code></td>
+<td><code>THEN</code></td>
+<td>ERR_01</td>
+<td style="text-align: right;">1407h</td>
+<td>BASIC</td>
+<td>als Anweisung Fehler 1; wird von IF ausgewertet</td>
+</tr>
+<tr>
+<td style="text-align: right;">13</td>
+<td><code>80 8D</code></td>
+<td><code>GOTO</code></td>
+<td>ST_GOTO</td>
+<td style="text-align: right;">20DEh</td>
+<td>BASIC</td>
+<td>GOTO zeile – auch Ziel von THEN zeile, ON ...</td>
+</tr>
+<tr>
+<td style="text-align: right;">14</td>
+<td><code>80 8E</code></td>
+<td><code>GOSUB</code></td>
+<td>ST_GOSUB</td>
+<td style="text-align: right;">210Bh</td>
+<td>BASIC</td>
+<td>GOSUB zeile – CURLINE, TXTPTR und FOR_CNT (7 Bytes) auf den GOSUB-Stack, FOR_CNT = 0 für die neue Ebene.</td>
+</tr>
+<tr>
+<td style="text-align: right;">15</td>
+<td><code>80 8F</code></td>
+<td><code>RETURN</code></td>
+<td>ST_RETURN</td>
+<td style="text-align: right;">213Ch</td>
+<td>BASIC</td>
+<td>RETURN – FOR-Einträge der aktuellen Ebene verwerfen, dann CURLINE, TXTPTR und FOR_CNT vom GOSUB-Stack holen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">16</td>
+<td><code>80 90</code></td>
+<td><code>NEXT</code></td>
+<td>ST_NEXT</td>
+<td style="text-align: right;">2204h</td>
+<td>BASIC</td>
+<td>NEXT [var[,var...]] – passenden FOR-Eintrag suchen (jüngere werden verworfen; keiner: Fehler 13), Schrittweite addieren und je nach Vorzeichen mit dem Endwert vergleichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">17</td>
+<td><code>80 91</code></td>
+<td><code>STOP</code></td>
+<td>ST_STOP</td>
+<td style="text-align: right;">1F5Bh</td>
+<td>BASIC</td>
+<td>STOP – wie END, gibt zusätzlich "*STOP IN zeile" aus.</td>
+</tr>
+<tr>
+<td style="text-align: right;">18</td>
+<td><code>80 92</code></td>
+<td><code>END</code></td>
+<td>ST_END</td>
+<td style="text-align: right;">1F3Eh</td>
+<td>BASIC</td>
+<td>END – Programm beenden (CONT_POS mit A=1, CONT möglich).</td>
+</tr>
+<tr>
+<td style="text-align: right;">19</td>
+<td><code>80 93</code></td>
+<td><code>ON ERROR GOTO</code></td>
+<td>ST_ONERR</td>
+<td style="text-align: right;">22D3h</td>
+<td>BASIC</td>
+<td>ON ERROR GOTO zeile – Behandler setzen (ONERR_FLAG = 1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">20</td>
+<td><code>80 94</code></td>
+<td><code>ON</code></td>
+<td>ST_ON</td>
+<td style="text-align: right;">2282h</td>
+<td>BASIC</td>
+<td>ON ausdruck GOTO/GOSUB z1,z2,... – auch ON SRQ (Token 80h,D6h -&gt; ST_SRQ).</td>
+</tr>
+<tr>
+<td style="text-align: right;">21</td>
+<td><code>80 95</code></td>
+<td><code>LOAD</code></td>
+<td>ST_LOAD</td>
+<td style="text-align: right;">41FEh</td>
+<td>BASIC</td>
+<td>LOAD [/T | dateiangabe] – BASIC-Programm (Typ BTX) laden, auch CHAIN, RUN "datei" und APPEND laufen hier durch. /T: von Kassette (LOAD_TAPE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">22</td>
+<td><code>80 96</code></td>
+<td><code>SAVE</code></td>
+<td>ST_SAVE</td>
+<td style="text-align: right;">436Eh</td>
+<td>BASIC</td>
+<td>SAVE [/T | dateiangabe] – Programm als BTX speichern (nur Direktmodus).</td>
+</tr>
+<tr>
+<td style="text-align: right;">23</td>
+<td><code>80 97</code></td>
+<td><code>VERIFY</code></td>
+<td>ST_VERIFY</td>
+<td style="text-align: right;">4FEAh</td>
+<td>BASIC</td>
+<td>VERIFY ["name"] – gespeichertes Programm mit dem Band vergleichen (nur Direktmodus).</td>
+</tr>
+<tr>
+<td style="text-align: right;">24</td>
+<td><code>80 98</code></td>
+<td><code>POKE</code></td>
+<td>ST_POKE</td>
+<td style="text-align: right;">2449h</td>
+<td>BASIC</td>
+<td>POKE adresse, wert – Adresse auch als $hex (EVAL_ADDR), Wert 0-255.</td>
+</tr>
+<tr>
+<td style="text-align: right;">25</td>
+<td><code>80 99</code></td>
+<td><code>DIM</code></td>
+<td>ST_DIM</td>
+<td style="text-align: right;">2338h</td>
+<td>BASIC</td>
+<td>DIM name[$](n[,m])[,...] – höchstens zwei Dimensionen, je 0-255.</td>
+</tr>
+<tr>
+<td style="text-align: right;">26</td>
+<td><code>80 9A</code></td>
+<td><code>DEF FN</code></td>
+<td>ST_DEFFN</td>
+<td style="text-align: right;">24B9h</td>
+<td>BASIC</td>
+<td>DEF FNx(y) = ausdruck – x, y je ein Buchstabe.</td>
+</tr>
+<tr>
+<td style="text-align: right;">27</td>
+<td><code>80 9B</code></td>
+<td><code>INPUT</code></td>
+<td>ST_INPUT</td>
+<td style="text-align: right;">3F75h</td>
+<td>BASIC</td>
+<td>INPUT [/T | #n] ["text";] var[,var...] – nur im Programm.</td>
+</tr>
+<tr>
+<td style="text-align: right;">28</td>
+<td><code>80 9C</code></td>
+<td><code>RESTORE</code></td>
+<td>ST_RESTORE</td>
+<td style="text-align: right;">1F7Ch</td>
+<td>BASIC</td>
+<td>RESTORE [zeile] – READ beginnt beim ersten DATA bzw. ab der Zeile.</td>
+</tr>
+<tr>
+<td style="text-align: right;">29</td>
+<td><code>80 9D</code></td>
+<td><code>CLR</code></td>
+<td>ST_CLR</td>
+<td style="text-align: right;">245Eh</td>
+<td>BASIC</td>
+<td>CLR – Variablen, Felder, DEF FN und Strings löschen (CLR_AREAS).</td>
+</tr>
+<tr>
+<td style="text-align: right;">30</td>
+<td><code>80 9E</code></td>
+<td><code>MUSIC</code></td>
+<td>ST_MUSIC</td>
+<td style="text-align: right;">2521h</td>
+<td>BASIC</td>
+<td>MUSIC s1[,s2...] – Strings nacheinander mit MUSIC_PLAY spielen; BREAK bricht ab.</td>
+</tr>
+<tr>
+<td style="text-align: right;">31</td>
+<td><code>80 9F</code></td>
+<td><code>TEMPO</code></td>
+<td>ST_TEMPO</td>
+<td style="text-align: right;">253Ah</td>
+<td>BASIC</td>
+<td>TEMPO n – n = 1-7, sonst Fehler 3.</td>
+</tr>
+<tr>
+<td style="text-align: right;">32</td>
+<td><code>80 A0</code></td>
+<td><code>USR(</code></td>
+<td>ST_USR</td>
+<td style="text-align: right;">2BCFh</td>
+<td>BASIC</td>
+<td>USR(adresse [, var$]) – Maschinenprogramm aufrufen, zurück über NEXTSTMT (liegt als Rücksprung auf dem Stack).</td>
+</tr>
+<tr>
+<td style="text-align: right;">33</td>
+<td><code>80 A1</code></td>
+<td><code>WOPEN</code></td>
+<td>ST_WOPEN</td>
+<td style="text-align: right;">456Ah</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">34</td>
+<td><code>80 A2</code></td>
+<td><code>ROPEN</code></td>
+<td>ST_ROPEN</td>
+<td style="text-align: right;">4558h</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">35</td>
+<td><code>80 A3</code></td>
+<td><code>CLOSE</code></td>
+<td>ST_CLOSE</td>
+<td style="text-align: right;">466Dh</td>
+<td>BASIC</td>
+<td>CLOSE [/T | #n[,#m...]] – Dateien schließen, ohne Nummer alle (127..1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">36</td>
+<td><code>80 A4</code></td>
+<td><code>MON</code></td>
+<td>ST_MON</td>
+<td style="text-align: right;">2B5Ch</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">37</td>
+<td><code>80 A5</code></td>
+<td><code>LIMIT</code></td>
+<td>ST_LIMIT</td>
+<td style="text-align: right;">2BF4h</td>
+<td>BASIC</td>
+<td>LIMIT MAX | adresse – Obergrenze des BASIC-Speichers setzen (STKTOP und SP).</td>
+</tr>
+<tr>
+<td style="text-align: right;">38</td>
+<td><code>80 A6</code></td>
+<td><code>CONT</code></td>
+<td>ST_CONT</td>
+<td style="text-align: right;">2C5Bh</td>
+<td>BASIC</td>
+<td>CONT – nur im Direktmodus, ohne gesicherte Stelle Fehler 17.</td>
+</tr>
+<tr>
+<td style="text-align: right;">39</td>
+<td><code>80 A7</code></td>
+<td><code>GET</code></td>
+<td>ST_GET</td>
+<td style="text-align: right;">2B8Fh</td>
+<td>BASIC</td>
+<td>GET var – Taste ohne Warten lesen (INKEY).</td>
+</tr>
+<tr>
+<td style="text-align: right;">40</td>
+<td><code>80 A8</code></td>
+<td><code>INP@</code></td>
+<td>ST_INPAT</td>
+<td style="text-align: right;">2C8Bh</td>
+<td>BASIC</td>
+<td>INP@ port, var – Port lesen (Portnummer wird in den IN-Befehl geschrieben).</td>
+</tr>
+<tr>
+<td style="text-align: right;">41</td>
+<td><code>80 A9</code></td>
+<td><code>OUT@</code></td>
+<td>ST_OUTAT</td>
+<td style="text-align: right;">2CA9h</td>
+<td>BASIC</td>
+<td>OUT@ port, wert – unteres Byte des Werts an den Port ausgeben (Portnummer wird in den OUT-Befehl geschrieben).</td>
+</tr>
+<tr>
+<td style="text-align: right;">42</td>
+<td><code>80 AA</code></td>
+<td><code>CURSOR</code></td>
+<td>ST_CURSOR</td>
+<td style="text-align: right;">2B63h</td>
+<td>BASIC</td>
+<td>CURSOR x, y – x kleiner als die Zeilenbreite (Operand von ADD_WIDTH), y 0-24, sonst Fehler 3.</td>
+</tr>
+<tr>
+<td style="text-align: right;">43</td>
+<td><code>80 AB</code></td>
+<td><code>SET</code></td>
+<td>ST_SET</td>
+<td style="text-align: right;">599Ch</td>
+<td>BASIC</td>
+<td>SET x,y / RESET x,y – Pixel setzen bzw. löschen und Grafikposition dorthin setzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">44</td>
+<td><code>80 AC</code></td>
+<td><code>RESET</code></td>
+<td>ST_RESET</td>
+<td style="text-align: right;">599Ah</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">45</td>
+<td><code>80 AD</code></td>
+<td><code>LINE</code></td>
+<td>ST_LINE</td>
+<td style="text-align: right;">59D5h</td>
+<td>BASIC</td>
+<td>LINE x1,y1,x2,y2[,x3,y3...] / BLINE ... – Streckenzug zeichnen bzw. löschen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">46</td>
+<td><code>80 AE</code></td>
+<td><code>BLINE</code></td>
+<td>ST_BLINE</td>
+<td style="text-align: right;">59D3h</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">47</td>
+<td><code>80 AF</code></td>
+<td><code>CONSOLE</code></td>
+<td>ST_CONSOLE</td>
+<td style="text-align: right;">5A39h</td>
+<td>BASIC</td>
+<td>CONSOLE [S a,b] [C 40|80] [R|N] – Rollbereich Zeile a bis b (1-24), 40/80 Zeichen, inverse (R) bzw. normale (N) Darstellung (PPI_A Bit 4).</td>
+</tr>
+<tr>
+<td style="text-align: right;">48</td>
+<td><code>80 B0</code></td>
+<td><code>GRAPH</code></td>
+<td>ST_GRAPH</td>
+<td style="text-align: right;">5B1Ch</td>
+<td>BASIC</td>
+<td>GRAPH [I n] [O ab] [C] [F] – Leseebene n (1-2), Schreibebenen (Ziffern 0-2), gewählte Ebenen löschen (C) oder füllen (F); setzt Port F4h.</td>
+</tr>
+<tr>
+<td style="text-align: right;">49</td>
+<td><code>80 B1</code></td>
+<td><code>POSITION</code></td>
+<td>ST_POSITION</td>
+<td style="text-align: right;">5AFDh</td>
+<td>BASIC</td>
+<td>POSITION x,y – Grafikposition setzen (x 0-319, y 0-199, sonst Fehler 3).</td>
+</tr>
+<tr>
+<td style="text-align: right;">50</td>
+<td><code>80 B2</code></td>
+<td><code>PATTERN</code></td>
+<td>ST_PATTERN</td>
+<td style="text-align: right;">5AB1h</td>
+<td>BASIC</td>
+<td>PATTERN [-]n, muster$ [, ...] – Bitmuster an der Grafikposition zeichnen (PAT_DRAW), n = 1-24 Zeilen; mit "-" in der Gegenrichtung (Schrittweite und ADD/SBC werden in PAT_STRIDE/PAT_STEP eingesetzt).</td>
+</tr>
+<tr>
+<td style="text-align: right;">51</td>
+<td><code>80 B3</code></td>
+<td><code>AUTO</code></td>
+<td>ST_AUTO</td>
+<td style="text-align: right;">2CBCh</td>
+<td>BASIC</td>
+<td>AUTO [start][,schritt] – nur im Direktmodus, Vorgabe je 10, 0: Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">52</td>
+<td><code>80 B4</code></td>
+<td><code>APPEND</code></td>
+<td>ST_APPEND</td>
+<td style="text-align: right;">41DAh</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">53</td>
+<td><code>80 B5</code></td>
+<td><code>IMAGE/P</code></td>
+<td>ST_IMAGEP</td>
+<td style="text-align: right;">54D1h</td>
+<td>BASIC</td>
+<td>IMAGE/P ausdruck[;...] – die Texte der Ausdrücke als Bitmuster an den Drucker senden (ESC 18h, Länge, Daten; höchstens 1000 Bytes, sonst Fehler 3).</td>
+</tr>
+<tr>
+<td style="text-align: right;">54</td>
+<td><code>80 B6</code></td>
+<td><code>COPY/P</code></td>
+<td>ST_COPYP</td>
+<td style="text-align: right;">557Dh</td>
+<td>BASIC</td>
+<td>COPY/P n – Bildschirm drucken. 1: Textbildschirm (25 Zeilen ab D000h), 2-4: Grafik (Ebenen über GR2_PATCH/GR2_PLANE1 gewählt, invertiert je nach Darstellung PPI_A Bit 4).</td>
+</tr>
+<tr>
+<td style="text-align: right;">55</td>
+<td><code>80 B7</code></td>
+<td><code>PAGE/P</code></td>
+<td>ST_PAGEP</td>
+<td style="text-align: right;">54B4h</td>
+<td>BASIC</td>
+<td>PAGE/P n – Seitenlänge n (1-255) an den Drucker (ESC 12h n).</td>
+</tr>
+<tr>
+<td style="text-align: right;">57</td>
+<td><code>80 B9</code></td>
+<td><code>BOOT</code></td>
+<td>ST_BOOT</td>
+<td style="text-align: right;">2B5Fh</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">58</td>
+<td><code>80 BA</code></td>
+<td><code>KLIST</code></td>
+<td>ST_KLIST</td>
+<td style="text-align: right;">2DDEh</td>
+<td>BASIC</td>
+<td>KLIST – Belegung der Funktionstasten 1-10 ausgeben (nur Direktmodus).</td>
+</tr>
+<tr>
+<td style="text-align: right;">59</td>
+<td><code>80 BB</code></td>
+<td><code>CHANGE</code></td>
+<td>ST_CHANGE</td>
+<td style="text-align: right;">2E1Ah</td>
+<td>BASIC</td>
+<td>CHANGE – Groß-/Kleinschreibung der Buchstabentasten umschalten: Bit 5 in je 26 Einträgen der Tastaturtabellen KEYTAB_N_AZ/KEYTAB_S_AZ setzen bzw. löschen, Zustand in CHANGE_FLAG.</td>
+</tr>
+<tr>
+<td style="text-align: right;">62</td>
+<td><code>80 BE</code></td>
+<td><code>REW</code></td>
+<td>ST_REW</td>
+<td style="text-align: right;">4FB1h</td>
+<td>BASIC</td>
+<td>REW / FAST – Kassette zurück- bzw. vorspulen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">63</td>
+<td><code>80 BF</code></td>
+<td><code>FAST</code></td>
+<td>ST_FAST</td>
+<td style="text-align: right;">4FC2h</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">64</td>
+<td><code>80 C0</code></td>
+<td><code>DIR</code></td>
+<td>ST_DIR</td>
+<td style="text-align: right;">474Ch</td>
+<td>BASIC</td>
+<td>DIR [FD[n]] [/P] – Verzeichnis ausgeben (nur Direktmodus), mit FD[n] wird außerdem das Standardgerät gesetzt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">65</td>
+<td><code>80 C1</code></td>
+<td><code>DELETE</code></td>
+<td>ST_DELETE</td>
+<td style="text-align: right;">48B1h</td>
+<td>BASIC</td>
+<td>DELETE dateiangabe – Datei löschen: nur Typ 1-4 (Fehler 63), nicht gesperrt (Fehler 46), nicht geöffnet (CHK_NOTOPEN).</td>
+</tr>
+<tr>
+<td style="text-align: right;">66</td>
+<td><code>80 C2</code></td>
+<td><code>SWAP</code></td>
+<td>ST_SWAP</td>
+<td style="text-align: right;">43F2h</td>
+<td>BASIC</td>
+<td>SWAP dateiangabe – laufendes Programm samt Variablen (ab 7096h) als Auslagerungsdatei (Typ 80h/81h) speichern, das andere Programm laden und starten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">67</td>
+<td><code>80 C3</code></td>
+<td><code>KILL</code></td>
+<td>ST_KILL</td>
+<td style="text-align: right;">49CFh</td>
+<td>BASIC</td>
+<td>KILL [#n[,#m...]] – Einträge aus der Dateitabelle streichen, ohne Nummer alle; anders als CLOSE ohne Schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">68</td>
+<td><code>80 C4</code></td>
+<td><code>RENAME</code></td>
+<td>ST_RENAME</td>
+<td style="text-align: right;">4ABAh</td>
+<td>BASIC</td>
+<td>RENAME dateiangabe, "neuer name" – Name 1-16 Zeichen (Fehler 60), neuer Name schon vorhanden: Fehler 42, alter fehlt: 40, gesperrt: 46.</td>
+</tr>
+<tr>
+<td style="text-align: right;">69</td>
+<td><code>80 C5</code></td>
+<td><code>LOCK</code></td>
+<td>ST_LOCK</td>
+<td style="text-align: right;">4A01h</td>
+<td>BASIC</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">70</td>
+<td><code>80 C6</code></td>
+<td><code>CHAIN</code></td>
+<td>ST_CHAIN</td>
+<td style="text-align: right;">43CBh</td>
+<td>BASIC</td>
+<td>CHAIN dateiangabe – Programm laden und starten, Variablen bleiben erhalten (CHAIN_MODE = 1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">71</td>
+<td><code>80 C7</code></td>
+<td><code>UNLOCK</code></td>
+<td>ST_UNLOCK</td>
+<td style="text-align: right;">49FFh</td>
+<td>BASIC</td>
+<td>LOCK / UNLOCK dateiangabe – Sperrbyte (+12h) im Verzeichnis setzen bzw. löschen (nicht bei geöffneten Dateien).</td>
+</tr>
+<tr>
+<td style="text-align: right;">72</td>
+<td><code>80 C8</code></td>
+<td><code>RESUME</code></td>
+<td>ST_RESUME</td>
+<td style="text-align: right;">22E5h</td>
+<td>BASIC</td>
+<td>RESUME [NEXT | zeile | 0] – nur im Fehlerbehandler (ONERR_FLAG = 2), sonst Fehler 21.</td>
+</tr>
+<tr>
+<td style="text-align: right;">73</td>
+<td><code>80 C9</code></td>
+<td><code>XOPEN</code></td>
+<td>ST_XOPEN</td>
+<td style="text-align: right;">4553h</td>
+<td>BASIC</td>
+<td>XOPEN #n, dateiangabe – Satzdatei (Typ BRD, FC_MODE 2) öffnen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">75</td>
+<td><code>80 CB</code></td>
+<td><code>SSRQ</code></td>
+<td>ST_SSRQ</td>
+<td style="text-align: right;">6439h</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">76</td>
+<td><code>80 CC</code></td>
+<td><code>GPIB</code></td>
+<td>ST_GPIB</td>
+<td style="text-align: right;">62A2h</td>
+<td>GP-IB</td>
+<td>GPIB [M|S] [, hörer [, sprecher]] – Betriebsart: M = Controller (GP_MODE C0h), S = Gerät (0).</td>
+</tr>
+<tr>
+<td style="text-align: right;">77</td>
+<td><code>80 CD</code></td>
+<td><code>PPC</code></td>
+<td>ST_PPC</td>
+<td style="text-align: right;">6240h</td>
+<td>GP-IB</td>
+<td>PPC adr, n – Parallel Poll Configure: Hörer, PPC (05h), PPE (68h+n, n = 0-7, sonst Fehler 3).</td>
+</tr>
+<tr>
+<td style="text-align: right;">78</td>
+<td><code>80 CE</code></td>
+<td><code>PPOL</code></td>
+<td>ST_PPOL</td>
+<td style="text-align: right;">626Bh</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">79</td>
+<td><code>80 CF</code></td>
+<td><code>PPU</code></td>
+<td>ST_PPU</td>
+<td style="text-align: right;">6294h</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">80</td>
+<td><code>80 D0</code></td>
+<td><code>REN</code></td>
+<td>ST_REN</td>
+<td style="text-align: right;">5F80h</td>
+<td>GP-IB</td>
+<td>REN – REN setzen (Port C1 Bit 0).</td>
+</tr>
+<tr>
+<td style="text-align: right;">81</td>
+<td><code>80 D1</code></td>
+<td><code>ICL</code></td>
+<td>ST_ICL</td>
+<td style="text-align: right;">5F8Ch</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">82</td>
+<td><code>80 D2</code></td>
+<td><code>LCL</code></td>
+<td>ST_LCL</td>
+<td style="text-align: right;">5F39h</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">83</td>
+<td><code>80 D3</code></td>
+<td><code>CMD</code></td>
+<td>ST_CMD</td>
+<td style="text-align: right;">619Ah</td>
+<td>GP-IB</td>
+<td>CMD R|W, ausdruck – Text als Adress-/Befehlsbytes mit ATN senden, die Karte dabei auf Empfang (R) bzw.</td>
+</tr>
+<tr>
+<td style="text-align: right;">84</td>
+<td><code>80 D4</code></td>
+<td><code>WRT</code></td>
+<td>ST_WRT</td>
+<td style="text-align: right;">5FA8h</td>
+<td>GP-IB</td>
+<td>WRT [/adr[;adr...],] ausdruck[;...] – Daten senden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">85</td>
+<td><code>80 D5</code></td>
+<td><code>RED</code></td>
+<td>ST_RED</td>
+<td style="text-align: right;">6097h</td>
+<td>GP-IB</td>
+<td>RED [/adr,] var[,var...] – Daten empfangen (wie INPUT): mit "/" UNL, eigene Hörer- und die Sprecheradresse senden, sonst muss die Karte Hörer sein (Fehler 39).</td>
+</tr>
+<tr>
+<td style="text-align: right;">86</td>
+<td><code>80 D6</code></td>
+<td><code>SRQ</code></td>
+<td>ST_SRQ</td>
+<td style="text-align: right;">61CFh</td>
+<td>GP-IB</td>
+<td>ON SRQ GOTO zeile (über ON) – bei gesetzter SRQ-Leitung springt NL_SRQ vor der nächsten Zeile dorthin (einmalig, SRQ_ON wird gelöscht).</td>
+</tr>
+<tr>
+<td style="text-align: right;">87</td>
+<td><code>80 D7</code></td>
+<td><code>SPOL</code></td>
+<td>ST_SPOL</td>
+<td style="text-align: right;">61E6h</td>
+<td>GP-IB</td>
+<td>SPOL adr, var – Serial Poll: UNL, SPE (18h), Sprecher, Statusbyte lesen, SPD (19h), UNT; Statusbyte nach var.</td>
+</tr>
+<tr>
+<td style="text-align: right;">88</td>
+<td><code>80 D8</code></td>
+<td><code>LLO</code></td>
+<td>ST_LLO</td>
+<td style="text-align: right;">5F57h</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">89</td>
+<td><code>80 D9</code></td>
+<td><code>DCL</code></td>
+<td>ST_DCL</td>
+<td style="text-align: right;">5F1Dh</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">91</td>
+<td><code>80 DB</code></td>
+<td><code>TRG</code></td>
+<td>ST_TRG</td>
+<td style="text-align: right;">5F06h</td>
+<td>GP-IB</td>
+<td>GP-IB-Befehle als Controller.</td>
+</tr>
+<tr>
+<td style="text-align: right;">92</td>
+<td><code>80 DC</code></td>
+<td><code>PCT</code></td>
+<td>ST_PCT</td>
+<td style="text-align: right;">5F5Eh</td>
+<td>GP-IB</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">93</td>
+<td><code>80 DD</code></td>
+<td><code>RDS</code></td>
+<td>ST_RDS</td>
+<td style="text-align: right;">62F0h</td>
+<td>GP-IB</td>
+<td>RDS var – als Gerät auf den Controller warten und dessen Befehle auswerten (RDS_DECODE: UNL, UNT, eigene Adressen, DCL, SDC, SPE/SPD, GET, TCT); Ergebnis in RDS_STATE nach var.</td>
+</tr>
+<tr>
+<td style="text-align: right;">94</td>
+<td><code>80 DE</code></td>
+<td><code>RQSMSG=</code></td>
+<td>ST_RQSMSG</td>
+<td style="text-align: right;">63FCh</td>
+<td>GP-IB</td>
+<td>RQSMSG= n – Statusbyte für den Serial Poll (RQS_BYTE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">95</td>
+<td><code>80 DF</code></td>
+<td><code>EOI</code></td>
+<td>ST_EOI</td>
+<td style="text-align: right;">6406h</td>
+<td>GP-IB</td>
+<td>EOI R n[,m] / EOI W n[,m] – Endezeichen für RED bzw.</td>
+</tr>
+<tr>
+<td style="text-align: right;">96</td>
+<td><code>80 E0</code></td>
+<td><code>RSO</code></td>
+<td>ST_RSO</td>
+<td style="text-align: right;">6718h</td>
+<td>RS-232C</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">97</td>
+<td><code>80 E1</code></td>
+<td><code>RSI</code></td>
+<td>ST_RSI</td>
+<td style="text-align: right;">6791h</td>
+<td>RS-232C</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">98</td>
+<td><code>80 E2</code></td>
+<td><code>RSMODE</code></td>
+<td>ST_RSMODE</td>
+<td style="text-align: right;">6657h</td>
+<td>RS-232C</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Freie Plätze (Routine ERR_01, Fehler 1): <code>80 83</code>, <code>80 B8</code>, <code>80 BC</code>, <code>80 BD</code>, <code>80 CA</code>, <code>80 DA</code>, <code>80 E3</code>.</p>
+<h2 id="operatoren-und-funktionen">Operatoren und Funktionen</h2>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Schlüsselwort</th>
+<th style="text-align: right;">FUNC_TAB</th>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Bemerkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>83</code></td>
+<td><code>&gt;&lt;</code></td>
+<td style="text-align: right;">0</td>
+<td>OP_NE2</td>
+<td style="text-align: right;">35ACh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>84</code></td>
+<td><code>&lt;&gt;</code></td>
+<td style="text-align: right;">1</td>
+<td>OP_NE2</td>
+<td style="text-align: right;">35ACh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>85</code></td>
+<td><code>=&lt;</code></td>
+<td style="text-align: right;">2</td>
+<td>OP_LE2</td>
+<td style="text-align: right;">35D1h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>86</code></td>
+<td><code>&lt;=</code></td>
+<td style="text-align: right;">3</td>
+<td>OP_LE2</td>
+<td style="text-align: right;">35D1h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>87</code></td>
+<td><code>=&gt;</code></td>
+<td style="text-align: right;">4</td>
+<td>OP_GE2</td>
+<td style="text-align: right;">35D5h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>88</code></td>
+<td><code>&gt;=</code></td>
+<td style="text-align: right;">5</td>
+<td>OP_GE2</td>
+<td style="text-align: right;">35D5h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>89</code></td>
+<td>–</td>
+<td style="text-align: right;">6</td>
+<td>OP_EQ</td>
+<td style="text-align: right;">35C9h</td>
+<td>freier Platz in KWTAB_OPS; EVAL_EXPR setzt 89h für "="</td>
+</tr>
+<tr>
+<td><code>8A</code></td>
+<td><code>&gt;</code></td>
+<td style="text-align: right;">7</td>
+<td>OP_GT</td>
+<td style="text-align: right;">35BDh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>8B</code></td>
+<td><code>&lt;</code></td>
+<td style="text-align: right;">8</td>
+<td>OP_LT</td>
+<td style="text-align: right;">35C1h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>9E</code></td>
+<td><code>TO</code></td>
+<td style="text-align: right;">–</td>
+<td>–</td>
+<td style="text-align: right;">–</td>
+<td>kein Eintrag in FUNC_TAB; von FOR geprüft (D2188)</td>
+</tr>
+<tr>
+<td><code>9F</code></td>
+<td><code>STEP</code></td>
+<td style="text-align: right;">–</td>
+<td>–</td>
+<td style="text-align: right;">–</td>
+<td>kein Eintrag in FUNC_TAB; von FOR geprüft (D2195)</td>
+</tr>
+<tr>
+<td><code>A0</code></td>
+<td><code>LEFT$(</code></td>
+<td style="text-align: right;">17</td>
+<td>FN_LEFT</td>
+<td style="text-align: right;">29ABh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A1</code></td>
+<td><code>RIGHT$(</code></td>
+<td style="text-align: right;">18</td>
+<td>FN_RIGHT</td>
+<td style="text-align: right;">29C7h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A2</code></td>
+<td><code>MID$(</code></td>
+<td style="text-align: right;">19</td>
+<td>FN_MID</td>
+<td style="text-align: right;">29F6h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A3</code></td>
+<td><code>LEN(</code></td>
+<td style="text-align: right;">20</td>
+<td>FN_LEN</td>
+<td style="text-align: right;">2A1Dh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A4</code></td>
+<td><code>CHR$(</code></td>
+<td style="text-align: right;">21</td>
+<td>FN_CHR</td>
+<td style="text-align: right;">2A2Ah</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A5</code></td>
+<td><code>STR$(</code></td>
+<td style="text-align: right;">22</td>
+<td>FN_STR</td>
+<td style="text-align: right;">2A37h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A6</code></td>
+<td><code>ASC(</code></td>
+<td style="text-align: right;">23</td>
+<td>FN_ASC</td>
+<td style="text-align: right;">2A6Ch</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A7</code></td>
+<td><code>VAL(</code></td>
+<td style="text-align: right;">24</td>
+<td>FN_VAL</td>
+<td style="text-align: right;">2A52h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A8</code></td>
+<td><code>PEEK(</code></td>
+<td style="text-align: right;">25</td>
+<td>FN_PEEK</td>
+<td style="text-align: right;">2AB1h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>A9</code></td>
+<td><code>TAB(</code></td>
+<td style="text-align: right;">26</td>
+<td>FN_TAB</td>
+<td style="text-align: right;">2AB9h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>AA</code></td>
+<td><code>SPACE$(</code></td>
+<td style="text-align: right;">27</td>
+<td>FN_SPACE</td>
+<td style="text-align: right;">2ABCh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>AB</code></td>
+<td><code>SIZE</code></td>
+<td style="text-align: right;">28</td>
+<td>FN_SIZE</td>
+<td style="text-align: right;">2B24h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>AC</code></td>
+<td><code>ERL</code></td>
+<td style="text-align: right;">29</td>
+<td>FN_ERL</td>
+<td style="text-align: right;">2B2Ah</td>
+<td></td>
+</tr>
+<tr>
+<td><code>AD</code></td>
+<td><code>ERN</code></td>
+<td style="text-align: right;">30</td>
+<td>FN_ERN</td>
+<td style="text-align: right;">2B30h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>AE</code></td>
+<td><code>EOF(</code></td>
+<td style="text-align: right;">31</td>
+<td>ERR_01</td>
+<td style="text-align: right;">1407h</td>
+<td>nur direkt nach IF (ST_IF, D246B); im Ausdruck Fehler 1</td>
+</tr>
+<tr>
+<td><code>AF</code></td>
+<td><code>STRING$(</code></td>
+<td style="text-align: right;">32</td>
+<td>FN_STRING</td>
+<td style="text-align: right;">2ADCh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>B0</code></td>
+<td><code>POINT(</code></td>
+<td style="text-align: right;">33</td>
+<td>FN_POINT</td>
+<td style="text-align: right;">2AF9h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>B1</code></td>
+<td><code>CHARACTER$(</code></td>
+<td style="text-align: right;">34</td>
+<td>FN_CHARACTER</td>
+<td style="text-align: right;">5BC2h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>B2</code></td>
+<td><code>CSR</code></td>
+<td style="text-align: right;">35</td>
+<td>FN_CSR</td>
+<td style="text-align: right;">5B93h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>B3</code></td>
+<td><code>POS</code></td>
+<td style="text-align: right;">36</td>
+<td>FN_POS</td>
+<td style="text-align: right;">5BACh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C0</code></td>
+<td><code>RND(</code></td>
+<td style="text-align: right;">37</td>
+<td>FN_RND</td>
+<td style="text-align: right;">35E2h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C1</code></td>
+<td><code>SIN(</code></td>
+<td style="text-align: right;">38</td>
+<td>FN_SIN</td>
+<td style="text-align: right;">3660h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C2</code></td>
+<td><code>COS(</code></td>
+<td style="text-align: right;">39</td>
+<td>FN_COS</td>
+<td style="text-align: right;">374Fh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C3</code></td>
+<td><code>TAN(</code></td>
+<td style="text-align: right;">40</td>
+<td>FN_TAN</td>
+<td style="text-align: right;">375Eh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C4</code></td>
+<td><code>ATN(</code></td>
+<td style="text-align: right;">41</td>
+<td>FN_ATN</td>
+<td style="text-align: right;">3AC0h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C5</code></td>
+<td><code>EXP(</code></td>
+<td style="text-align: right;">42</td>
+<td>FN_EXP</td>
+<td style="text-align: right;">384Dh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C6</code></td>
+<td><code>INT(</code></td>
+<td style="text-align: right;">43</td>
+<td>FN_INT</td>
+<td style="text-align: right;">34D0h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C7</code></td>
+<td><code>LOG(</code></td>
+<td style="text-align: right;">44</td>
+<td>FN_LOG</td>
+<td style="text-align: right;">3AAEh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C8</code></td>
+<td><code>LN(</code></td>
+<td style="text-align: right;">45</td>
+<td>FN_LN</td>
+<td style="text-align: right;">397Fh</td>
+<td></td>
+</tr>
+<tr>
+<td><code>C9</code></td>
+<td><code>ABS(</code></td>
+<td style="text-align: right;">46</td>
+<td>FN_ABS</td>
+<td style="text-align: right;">2B43h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>CA</code></td>
+<td><code>SGN(</code></td>
+<td style="text-align: right;">47</td>
+<td>FN_SGN</td>
+<td style="text-align: right;">2B48h</td>
+<td></td>
+</tr>
+<tr>
+<td><code>CB</code></td>
+<td><code>SQR(</code></td>
+<td style="text-align: right;">48</td>
+<td>FN_SQR</td>
+<td style="text-align: right;">3789h</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Freie Token: <code>8C</code>, <code>8D</code>, <code>8E</code>, <code>8F</code>, <code>90</code>, <code>91</code>, <code>92</code>, <code>93</code>, <code>94</code>, <code>95</code>, <code>96</code>, <code>97</code>, <code>98</code>, <code>99</code>, <code>9A</code>, <code>9B</code>, <code>9C</code>, <code>9D</code>, <code>B4</code>, <code>B5</code>, <code>B6</code>, <code>B7</code>, <code>B8</code>, <code>B9</code>, <code>BA</code>, <code>BB</code>, <code>BC</code>, <code>BD</code>, <code>BE</code>, <code>BF</code>, <code>CC</code>.</p>
+<h3 id="operatoren-ohne-token">Operatoren ohne Token</h3>
+<table>
+<thead>
+<tr>
+<th>Zeichen</th>
+<th style="text-align: right;">FUNC_TAB</th>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Erkannt in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>=</code></td>
+<td style="text-align: right;">6</td>
+<td>OP_EQ</td>
+<td style="text-align: right;">35C9h</td>
+<td>EVAL_EXPR (254Eh): wird zu 89h, Auswertung wie Token 89h</td>
+</tr>
+<tr>
+<td><code>+</code></td>
+<td style="text-align: right;">12</td>
+<td>OP_ADD</td>
+<td style="text-align: right;">2E45h</td>
+<td>EVAL (2604h)</td>
+</tr>
+<tr>
+<td><code>-</code></td>
+<td style="text-align: right;">13</td>
+<td>OP_SUB</td>
+<td style="text-align: right;">2E43h</td>
+<td>EVAL (2604h)</td>
+</tr>
+<tr>
+<td><code>*</code></td>
+<td style="text-align: right;">14</td>
+<td>OP_MUL</td>
+<td style="text-align: right;">2F40h</td>
+<td>L264E (264Eh)</td>
+</tr>
+<tr>
+<td><code>/</code></td>
+<td style="text-align: right;">15</td>
+<td>OP_DIV</td>
+<td style="text-align: right;">3010h</td>
+<td>L264E (264Eh)</td>
+</tr>
+<tr>
+<td><code>^</code></td>
+<td style="text-align: right;">16</td>
+<td>OP_POW</td>
+<td style="text-align: right;">3BA3h</td>
+<td>L2667 (2667h)</td>
+</tr>
+</tbody>
+</table>
+<p>FUNC_TAB-Einträge 9, 10, 11 zeigen auf ERR_01 und werden von keinem Token erreicht.</p>
+<footer><div class="pn"><a class="prev" href="gleitkomma.html">← Gleitkomma und Mathematik</a><a class="next" href="ein-ausgabe.html">Ein-/Ausgabe und Dateien →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

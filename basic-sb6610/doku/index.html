@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Überblick – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li class="cur"><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#das-system-in-zahlen">Das System in Zahlen</a></li><li><a href="#fassungen">Fassungen</a></li><li><a href="#wie-diese-doku-entstanden-ist">Wie diese Doku entstanden ist</a></li><li><a href="#begriffe">Begriffe</a></li></ul></aside>
+<h1 id="double-precision-basic-sb-6610-technische-dokumentation">Double Precision BASIC SB-6610 – Technische Dokumentation</h1>
+<p>Diese Dokumentation beschreibt den BASIC-Interpreter <strong>SB-6610</strong> („Double precision DISK BASIC“)
+von Sharp (1981) für den <strong>Sharp MZ-80B</strong>, so wie er im kommentierten Disassembly
+<code>sb6610/sb6610.asm</code> vorliegt.</p>
+<p>SB-6610 ist ein Abkömmling des Disk BASIC SB-6511: Tokenizer, Interpreterschleife,
+Dateisystem, Grafik und Floppy-Treiber sind dieselben, nur verschoben. Neu geschrieben ist die
+<strong>Zahlendarstellung</strong>: Statt 5-Byte-Gleitkomma mit 32-Bit-Mantisse rechnet SB-6610 mit
+<strong>9-Byte-BCD-Zahlen mit 16 Dezimalstellen</strong>. Dazu kommen <code>PRINT USING</code> und <code>DELETE</code> für
+Programmzeilen; weggefallen sind GP-IB, RS-232C und die Funktionen <code>^</code>, <code>SIN</code>, <code>COS</code>, <code>TAN</code>,
+<code>ATN</code>, <code>EXP</code>, <code>LOG</code> und <code>LN</code>.</p>
+<p>Die Doku setzt die <a href="../../basic-sb6511/doku-basic/index.html">Dokumentation von SB-6511</a> nicht voraus,
+verweist aber für unveränderte Teile dorthin. Was in SB-6610 anders ist, steht gesammelt unter
+<a href="unterschiede.html">Unterschiede zu SB-6511</a>.</p>
+<div class="cards">
+<p><a href="unterschiede.html"><strong>Unterschiede zu SB-6511</strong>Was neu, was weggefallen, was verschoben ist.</a>
+<a href="architektur.html"><strong>Aufbau und Speicher</strong>Start, Speicherkarte von Abbild und Arbeitsbereich, Speicherreste.</a>
+<a href="tokenizer.html"><strong>Tokenizer und Programmtext</strong>Token-Format, USING, CRUNCH/LISTLINE, Zeilenformat.</a>
+<a href="interpreter.html"><strong>Interpreterschleife</strong>NEXTSTMT, DISPATCH, Stacks mit 9-Byte-Zahlen, LIST_LOCK.</a>
+<a href="zahlen.html"><strong>BCD-Zahlen und Arithmetik</strong>Zahlformat, Grundrechenarten, SQR, INT, RND, Wandlung.</a>
+<a href="printusing.html"><strong>PRINT USING</strong>Schablonen, Beispiele aus dem Handbuch, Umsetzung.</a>
+<a href="befehle.html"><strong>Befehlsreferenz</strong>Alle Schlüsselwörter mit Token, Routine und Adresse.</a>
+<a href="ein-ausgabe.html"><strong>Ein-/Ausgabe, Dateien, Drucker</strong>Geräteverteilung, Dateien, Druckerbreite.</a>
+<a href="fehler.html"><strong>Fehler</strong>Fehlernummern mit Handbuchtexten, ON ERROR.</a>
+<a href="erweitern.html"><strong>Erweitern und Verschieben</strong>NOJUNK, freier Platz, Verschiebbarkeit.</a>
+<a href="werkzeuge.html"><strong>Werkzeuge und Tests</strong>Tokenizer, Emulatortests, Gesamtlauf.</a>
+<a href="routinen.html"><strong>Routinenverzeichnis</strong>Alle kommentierten Routinen mit Adresse.</a></p>
+</div>
+
+<h2 id="das-system-in-zahlen">Das System in Zahlen</h2>
+<table>
+<thead>
+<tr>
+<th>Merkmal</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hersteller, Jahr</td>
+<td>Sharp Corp., 1981 (<code>Copyright 1981 by SHARP Corp.</code>)</td>
+</tr>
+<tr>
+<td>Rechner</td>
+<td>Sharp MZ-80B, Z80 mit 4 MHz, 64 KB RAM</td>
+</tr>
+<tr>
+<td>Abbild</td>
+<td><code>Disk Basic6610ipl.mzf</code>, 7E00h Bytes (32 256), geladen ab 0000h</td>
+</tr>
+<tr>
+<td>Monitor im Abbild</td>
+<td>SB-1510 (0000h–1221h), bis auf <code>IM 1</code> gleich dem von SB-6511</td>
+</tr>
+<tr>
+<td>BASIC-Teil</td>
+<td>1222h–5FFFh; der Code endet genau vor dem Arbeitsbereich ab 6000h</td>
+</tr>
+<tr>
+<td>Programmbeginn</td>
+<td>68DDh (<code>PRGTXT</code>), bei SB-6511 725Ch</td>
+</tr>
+<tr>
+<td>Einschaltmeldung</td>
+<td><code>Double precision BASIC  SB-6610</code>, danach 22123 Bytes frei (64 KB RAM)</td>
+</tr>
+<tr>
+<td>Anweisungen</td>
+<td>70 belegte von 81 Plätzen (Token <code>80h,80h</code>–<code>80h,D0h</code>)</td>
+</tr>
+<tr>
+<td>Operatoren/Funktionen</td>
+<td>9 Vergleichsoperatoren, <code>USING</code>, <code>TO</code>/<code>STEP</code>, 20 Funktionen A0h–B3h, 12 Plätze C0h–CBh (davon 5 benutzbar: <code>RND(</code> <code>INT(</code> <code>ABS(</code> <code>SGN(</code> <code>SQR(</code>)</td>
+</tr>
+<tr>
+<td>Zahlen</td>
+<td>9 Bytes BCD: 16 Ziffern Mantisse + Exponentbyte; ganze Zahlen bis 16 Stellen exakt; Bereich 1E-48 bis 9.999999999999999E+78 (Handbuch)</td>
+</tr>
+<tr>
+<td>Strings</td>
+<td>bis 255 Zeichen</td>
+</tr>
+<tr>
+<td>Variablennamen</td>
+<td>2 signifikante Zeichen</td>
+</tr>
+<tr>
+<td>Felder</td>
+<td>ein- oder zweidimensional; eindimensional nur durch den Speicher begrenzt, zweidimensional je Index 0–255</td>
+</tr>
+<tr>
+<td>Verschachtelung</td>
+<td>15 FOR, 15 GOSUB, FN-Ebenen wie SB-6511</td>
+</tr>
+<tr>
+<td>Fehlernummern</td>
+<td>1–70</td>
+</tr>
+<tr>
+<td>Disketten</td>
+<td>16 Sektoren × 256 Bytes je Spur, Controller MB8876, bis 4 Laufwerke</td>
+</tr>
+</tbody>
+</table>
+<h2 id="fassungen">Fassungen</h2>
+<p>Das untersuchte Abbild liegt in <code>sb6610/</code> und ist identisch mit dem BASIC auf den
+Systemdisketten <code>disketten-2/DISK8.DSK</code> und <code>DISK16.DSK</code>. Auf <code>disketten/DISK26.DSK</code> steht eine
+<strong>ältere Fassung</strong>, die sich in 76 Bytes unterscheidet. Ihr fehlen drei nachträgliche
+Korrekturen:</p>
+<table>
+<thead>
+<tr>
+<th>Korrektur</th>
+<th>Wirkung</th>
+<th>ältere Fassung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>INT_FINISH</code> (3B1Bh)</td>
+<td><code>INT</code> einer Zahl zwischen −1 und 0 ergibt echte 0 statt „−0“</td>
+<td><code>FN_INT</code> springt direkt nach <code>FP_INTFORM</code></td>
+</tr>
+<tr>
+<td><code>POINT_GET</code> (5A0Dh)</td>
+<td><code>POINT(x,y)</code> rettet das Registerpaar BC</td>
+<td><code>FN_POINT</code> ruft <code>GR_POINT</code> direkt</td>
+</tr>
+<tr>
+<td><code>AREA_RESIZE_CLR</code> (5FF0h)</td>
+<td>nach dem Umbau eines Bereichs zwei Zeigerwörter auf 0</td>
+<td><code>AREA_RESIZE</code> direkt</td>
+</tr>
+</tbody>
+</table>
+<p>Außerdem programmiert <code>MON_INIT</code> die I/O-Bausteine in der älteren Fassung mit einzelnen
+<code>OUT</code>-Befehlen statt über die Tabelle <code>IOINIT_TAB</code>. Die Korrekturen sind in freie Stellen gelegt
+worden: <code>INT_FINISH</code> in unbenutzte Einträge der Gerätetabelle <code>DEVTAB_PRINT</code>, die beiden anderen
+an das Ende des Codes.</p>
+<h2 id="wie-diese-doku-entstanden-ist">Wie diese Doku entstanden ist</h2>
+<p>Grundlage ist das Disassembly <code>sb6610.asm</code>. Es wurde zunächst mit <code>tools/port_sb6610.py</code> aus der
+kommentierten SB-6511-Quelle abgeleitet: Zeilen, deren Bytes bis auf Adressen gleich sind,
+übernahmen Namen und Kommentare. Neuer Code wurde danach von Hand analysiert und benannt; das
+Verhalten der BCD-Arithmetik und von PRINT USING wurde im Z80-Emulator mit dem Originalcode
+geprüft (siehe <a href="werkzeuge.html">Werkzeuge und Tests</a>). Das Handbuch
+(<code>sb6610/Double_Precision_DISK_BASIC_MANUAL_nobmp_SB-6610.pdf</code>) bestätigt die Befunde.</p>
+<p>Adressen werden hexadezimal mit nachgestelltem <code>h</code> angegeben und beziehen sich auf das
+Original-Abbild. Die Seiten werden mit <code>tools/mkdoku6610.py</code> erzeugt, die Adressen kommen dabei
+aus der Symboldatei des Assemblers.</p>
+<blockquote>
+<p>Offene Punkte sind als solche gekennzeichnet, vor allem <code>LIST_LOCK</code>
+(<a href="interpreter.html#list-lock-ein-unbekannter-listschutz">Interpreter</a>).</p>
+</blockquote>
+<h2 id="begriffe">Begriffe</h2>
+<table>
+<thead>
+<tr>
+<th>Begriff</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BCD</td>
+<td>Binary Coded Decimal: zwei Dezimalziffern je Byte, Rechnen mit <code>DAA</code></td>
+</tr>
+<tr>
+<td>Mantisse, Exponentbyte</td>
+<td>die 16 Ziffern einer Zahl bzw. Byte 8 mit Vorzeichen und Zehnerexponent</td>
+</tr>
+<tr>
+<td>Ganzzahlform</td>
+<td>Darstellung mit Exponentbyte 40h, Mantisse rechtsbündig (1 = <code>00…01 40</code>)</td>
+</tr>
+<tr>
+<td>Token</td>
+<td>Kürzel für ein Schlüsselwort im Programmtext (<code>80h,88h</code> = <code>PRINT</code>)</td>
+</tr>
+<tr>
+<td>Inline-Parameter</td>
+<td>Daten direkt hinter einem <code>CALL</code>, die die gerufene Routine liest</td>
+</tr>
+<tr>
+<td>Wertestack</td>
+<td>Stapel der Zwischenergebnisse beim Auswerten von Ausdrücken (<code>VALSP</code>)</td>
+</tr>
+<tr>
+<td>BTX / OBJ / BSD / BRD</td>
+<td>Dateitypen: BASIC-Programm, Maschinenprogramm, sequentielle Datei, Satzdatei</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="next" href="unterschiede.html">Unterschiede zu SB-6511 →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ein-/Ausgabe, Dateien, Drucker – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li class="cur"><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#geraete-und-dev-dispatch">Geräte und DEV_DISPATCH</a></li><li><a href="#print">PRINT</a></li><li><a href="#get">GET</a></li><li><a href="#dateien">Dateien</a></li><li><a href="#drucker">Drucker</a></li><li><a href="#grafik-und-bildschirm">Grafik und Bildschirm</a></li></ul></aside>
+<h1 id="ein-ausgabe-dateien-drucker">Ein-/Ausgabe, Dateien, Drucker</h1>
+<p>Ein- und Ausgabe, Dateisystem, Kassette und Floppy-Treiber sind aus SB-6511 übernommen. Die
+<a href="../../basic-sb6511/doku-basic/ein-ausgabe.html">SB-6511-Dokumentation</a> beschreibt das Disketten-Dateisystem
+(Verzeichnis, Belegungstabelle, Dateitypen BTX/OBJ/BSD/BRD, Satzdateien) ausführlich; es gilt
+unverändert. Diese Seite nennt die Unterschiede.</p>
+<h2 id="geraete-und-dev-dispatch">Geräte und DEV_DISPATCH</h2>
+<p>Jedes <code>PRINT</code>-Element und jede Eingabe geht über <code>DEV_DISPATCH</code> (3B00h). Die Routine
+wählt aus einer Tabelle nach <code>FILE_NO</code> (80h Bildschirm, 81h DATA, 82h Drucker <code>/P</code>, 83h Kassette
+<code>/T</code>, 1–127 Datei <code>#n</code>) bzw. nach dem Dateityp.</p>
+<p><code>DEVTAB_PRINT</code> (3B13h) hat wie bei SB-6511 30 Einträge: 0–14 Zeilenabschluss, 15–29
+ein Element ausgeben. Die Einträge 4–9 gehörten bei SB-6511 zu den Geräten 84h–89h (GP-IB,
+RS-232C) und sind hier unbenutzt. In ihren 12 Bytes steht stattdessen Code: der Schluss von <code>INT</code>
+(<code>INT_FINISH</code>, 3B1Bh), eine der nachträglichen Korrekturen. <code>DEVTAB_INPUT</code>
+(3BF6h) hat 15 Einträge für die Eingabe; die Tastatur behandelt <code>INPUT</code> selbst,
+über die Tabelle lesen Kassette (<code>TINPUT</code>) und Datei (<code>FILE_GET</code>), die Geräte 84h–89h führen zu
+Fehler 1.</p>
+<h2 id="print">PRINT</h2>
+<p><code>ST_PRINT</code> (37D7h) arbeitet wie bei SB-6511, setzt aber zu Beginn <code>USING_PTR</code> auf 0 und
+prüft nach <code>PRINT</code> bzw. <code>PRINT/P</code> auf das Token <code>USING</code> (<a href="printusing.html">PRINT USING</a>). Zahlen
+werden mit bis zu 16 Ziffern ausgegeben, davor ein Leerzeichen oder <code>-</code>.</p>
+<h2 id="get">GET</h2>
+<p><code>GET var</code> (2B4Dh) liest wie bei SB-6511 eine Taste ohne zu warten. Neu: <code>GET_LASTKEY</code>
+(2B4Bh) merkt sich die zuletzt gelieferte Taste. Wird beim nächsten <code>GET</code> dieselbe
+Taste gemeldet, weil sie noch gedrückt ist, gibt <code>GET</code> einen leeren String bzw. 0 zurück. Eine
+gehaltene Taste erscheint so nur einmal, die Tastenwiederholung der Tastaturroutine wirkt sich
+nicht aus.</p>
+<h2 id="dateien">Dateien</h2>
+<p>Dateibefehle und Dateisystem sind gleich geblieben. Geändert haben sich zwei Fehlernummern; das
+Handbuch (Anhang A.2) nennt dieselben Bedeutungen:</p>
+<table>
+<thead>
+<tr>
+<th>Fall</th>
+<th style="text-align: right;">SB-6511</th>
+<th style="text-align: right;">SB-6610</th>
+<th>Handbuch</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Datei lesen/schreiben in anderem Modus als geöffnet (<code>FILE_GET</code>/<code>FILE_PUT</code>)</td>
+<td style="text-align: right;">44</td>
+<td style="text-align: right;">45</td>
+<td>„A file was accessed in different mode from ROPEN, WOPEN or XOPEN“</td>
+</tr>
+<tr>
+<td>sequentielle Datei wird beim Schreiben zu groß</td>
+<td style="text-align: right;">55</td>
+<td style="text-align: right;">53</td>
+<td>„File space on the diskette is insufficient“</td>
+</tr>
+</tbody>
+</table>
+<p><code>DELETE</code> löscht weiterhin Dateien, wenn das Argument kein Zeilenbereich ist
+(<a href="tokenizer.html#delete-programmzeilen-loeschen">Tokenizer: DELETE</a>). Der Floppy-Motor wird
+an allen Stellen über den kleinen Sprungpunkt <code>MOTOR_OFF</code> (4869h) abgeschaltet, der nach
+<code>FD_MOTOR_OFF</code> (5D06h) weiterleitet.</p>
+<p>Der Arbeitsbereich der Dateiverwaltung (aktuelle Datei <code>FC_IDX</code> …, Dateitabelle <code>FILETAB</code>,
+Puffer ab 6650h) liegt um A00h tiefer als bei SB-6511, siehe
+<a href="architektur.html#arbeitsbereich-zur-laufzeit">Aufbau und Speicher</a>.</p>
+<h2 id="drucker">Drucker</h2>
+<p>Die Druckerbefehle <code>PRINT/P</code>, <code>LIST/P</code>, <code>PAGE/P</code>, <code>IMAGE/P</code> und <code>COPY/P</code> sind übernommen. Neu ist
+<code>PRN_DOTW</code> (5178h), die Breite einer Druckzeile in Punkten:</p>
+<table>
+<thead>
+<tr>
+<th>Steuerzeichen im Text</th>
+<th>an den Drucker</th>
+<th style="text-align: right;"><code>PRN_DOTW</code></th>
+<th style="text-align: right;">Zeichen je Zeile</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>14h</td>
+<td>0Fh (Schmalschrift)</td>
+<td style="text-align: right;">0330h = 816</td>
+<td style="text-align: right;">136</td>
+</tr>
+<tr>
+<td>05h, 06h, 10h, 11h, 12h, 13h, 15h</td>
+<td>wie SB-6511</td>
+<td style="text-align: right;">01E0h = 480</td>
+<td style="text-align: right;">80</td>
+</tr>
+</tbody>
+</table>
+<p><code>PRN_C_NORMW</code> und <code>PRN_C_WIDEW</code> stellen den Wert um, <code>PRN_SETCOL</code>/<code>PRN_COLWRAP</code> (502Eh)
+rechnen die Druckspalte danach modulo 80 bzw. 136. Bei SB-6511 galt immer die feste Breite.</p>
+<h2 id="grafik-und-bildschirm">Grafik und Bildschirm</h2>
+<p>Grafikbefehle, <code>CONSOLE</code>, <code>CURSOR</code>, <code>CSR</code>, <code>POS</code> und <code>CHARACTER$</code> sind unverändert. <code>POINT(x,y)</code>
+ruft <code>GR_POINT</code> jetzt über <code>POINT_GET</code> (5A0Dh) auf, das das Registerpaar BC rettet – eine
+der Korrekturen gegenüber der älteren Fassung. Eine Kopie dieser Routinen aus einem älteren
+Entwicklungsstand steht unerreicht bei 5A13h (<a href="architektur.html#speicherreste">Speicherreste</a>).</p>
+<footer><div class="pn"><a class="prev" href="befehle.html">← Befehlsreferenz</a><a class="next" href="fehler.html">Fehler und Fehlerbehandlung →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRINT USING – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li class="cur"><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#formatzeichen">Formatzeichen</a></li><li><a href="#beispiele-aus-dem-handbuch">Beispiele aus dem Handbuch</a></li><li><a href="#eigenheiten">Eigenheiten</a></li><li><a href="#umsetzung">Umsetzung</a></li></ul></aside>
+<h1 id="print-using">PRINT USING</h1>
+<p><code>PRINT USING</code> gibt Zahlen nach einer Schablone aus. Es ist neu in SB-6610 (Token 9Dh) und
+funktioniert auf dem Bildschirm und mit <code>PRINT/P</code> auf dem Drucker.</p>
+<pre><code>PRINT [/P] USING schablone ; ausdruck [ , ausdruck ...]
+</code></pre>
+<p>Die Schablone ist ein beliebiger Stringausdruck. Jede Zahl der Liste wird nach derselben
+Schablone ausgegeben; ein <code>,</code> zwischen den Ausdrücken springt wie bei <code>PRINT</code> zur nächsten
+Tabulatorposition, ein <code>;</code> hängt direkt an.</p>
+<h2 id="formatzeichen">Formatzeichen</h2>
+<table>
+<thead>
+<tr>
+<th>Zeichen</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>#</code></td>
+<td>eine Ziffernstelle; freie Stellen vorn werden Leerzeichen</td>
+</tr>
+<tr>
+<td><code>*</code></td>
+<td>eine Ziffernstelle; freie Stellen vorn werden <code>*</code> (nicht mit <code>#</code> mischen)</td>
+</tr>
+<tr>
+<td><code>.</code></td>
+<td>Dezimalpunkt, höchstens einer; fehlende Nachkommastellen werden <code>0</code></td>
+</tr>
+<tr>
+<td><code>,</code></td>
+<td>Tausendertrenner an dieser Stelle</td>
+</tr>
+<tr>
+<td><code>X</code></td>
+<td>Leerzeichen zwischen den Ziffern</td>
+</tr>
+<tr>
+<td><code>+</code></td>
+<td>Vorzeichen immer ausgeben</td>
+</tr>
+<tr>
+<td><code>-</code></td>
+<td>Vorzeichen nur bei negativen Zahlen, sonst Leerzeichen</td>
+</tr>
+<tr>
+<td><code>$</code> <code>£</code> <code>@</code></td>
+<td>Währungszeichen direkt vor der Zahl (£ ist das Zeichen 91h)</td>
+</tr>
+<tr>
+<td>anderer Text</td>
+<td>vor dem ersten bzw. hinter dem letzten Formatzeichen: wird unverändert ausgegeben</td>
+</tr>
+</tbody>
+</table>
+<h2 id="beispiele-aus-dem-handbuch">Beispiele aus dem Handbuch</h2>
+<p>Alle Beispiele aus Kapitel 2.4.1 des Handbuchs, im Emulator mit dem Originalcode ausgegeben
+(„·“ steht für ein Leerzeichen). Die Ausgaben stimmen genau mit dem Handbuch überein und sind Teil
+von <code>tools/test_sb6610_run.py</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Anweisung</th>
+<th>Ausgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PRINT USING "##,###";12345</code></td>
+<td><code>12,345</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "##.##";12.345</code></td>
+<td><code>12.34</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "+###,###";123456</code></td>
+<td><code>+123,456</code></td>
+</tr>
+<tr>
+<td><code>A$="-#,###":PRINT USING A$;-1234</code></td>
+<td><code>-1,234</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "+#.##";1.23</code></td>
+<td><code>+1.23</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "#.###";1.23</code></td>
+<td><code>1.230</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "##,###.#";12345</code></td>
+<td><code>12,345.0</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "##,###";12</code></td>
+<td><code>····12</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "**,***";12</code></td>
+<td><code>****12</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "+****";12</code></td>
+<td><code>**+12</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "@##.##";12.3</code></td>
+<td><code>@12.30</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "##XXX##";1234</code></td>
+<td><code>12···34</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "#,###.XXX##";123.4</code></td>
+<td><code>··123.···40</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "##,###";123456</code></td>
+<td><code>%123,456</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "UNIT PRICE @##.## YEN";12.34</code></td>
+<td><code>UNIT PRICE @12.34 YEN</code></td>
+</tr>
+<tr>
+<td><code>A$="COMPUTER ### SYSTEMS":PRINT USING A$;12</code></td>
+<td><code>COMPUTER··12·SYSTEMS</code></td>
+</tr>
+<tr>
+<td><code>PRINT USING "##,###";1234,567</code></td>
+<td><code>·1,234·······567</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="eigenheiten">Eigenheiten</h2>
+<p>Ebenfalls im Emulator geprüft:</p>
+<ul>
+<li><strong>Abschneiden statt Runden:</strong> <code>"#.##";2.556</code> ergibt <code>2.55</code>, <code>"##";9.9</code> ergibt <code>·9</code>,
+  <code>"###";-12.7</code> ergibt <code>·-12</code>.</li>
+<li><strong>Zu wenig Stellen:</strong> Passt der Vorkommateil nicht, kommt <code>%</code> und die Zahl in voller Länge
+  (<code>"##";123</code> → <code>%123</code>).</li>
+<li><strong>Negative Zahlen ohne <code>+</code>/<code>-</code> in der Schablone</strong> bekommen eine Stelle mehr für das <code>-</code>:
+  <code>"###.##";3.14159</code> → <code>··3.14</code>, aber <code>"###.##";-2.5</code> → <code>··-2.50</code>.</li>
+<li><strong>Fehler 1</strong> bei: Zahlen in Exponentform (<code>"##.#";1E20</code>), <code>#</code> und <code>*</code> gemischt (<code>"**###"</code>),
+  zwei Währungs- oder Vorzeichenzeichen (<code>"$$##"</code>), zwei Dezimalpunkten, einer Schablone ohne
+  Ziffernstelle, leerer Schablone.</li>
+<li><strong>Null als „O“:</strong> Mit <code>POKE $002D,1</code> gibt <code>PRINT USING</code> die Ziffer 0 als Buchstaben O aus,
+  <code>POKE $002D,0</code> schaltet zurück (Handbuch). Das Byte liegt im Monitor-Bereich und wird vom
+  BASIC sonst nicht benutzt.</li>
+<li><code>STR$</code> setzt <code>USING_PTR</code> auf 0 und ist deshalb von <code>USING</code> nicht betroffen.</li>
+</ul>
+<h2 id="umsetzung">Umsetzung</h2>
+<h3 id="ablauf">Ablauf</h3>
+<ol>
+<li><code>ST_PRINT</code> (37D7h) setzt <code>USING_PTR</code> (64D3h) auf 0. Folgt nach <code>PRINT</code> bzw.
+   <code>PRINT/P</code> das Token 9Dh, ruft es <code>PR_USING</code> (38CBh) auf.</li>
+<li><code>PR_USING</code> wertet die Schablone aus (<code>;</code> muss folgen), kopiert sie mit <code>STR2TEXT</code> nach
+   <code>INBUF</code> und zerlegt sie mit <code>USING_PARSE</code> (5295h). Danach zeigt <code>USING_PTR</code> auf
+   <code>USING_FMT</code> (64D6h).</li>
+<li>Jede Zahl der Liste geht wie sonst über <code>VAL2TEXT</code> → <code>NUM2STR</code>. Am Ende von <code>NUM2STR</code> steht
+   der Text in <code>NUMBUF</code>; <code>NUM_OUT</code> (5350h) kopiert ihn ohne USING unverändert, mit USING
+   baut es die Ausgabe nach der Schablone in <code>USING_FMT</code> auf.</li>
+</ol>
+<p><code>NUM2STR</code> übergibt in A, welche Form der Text hat (0 normal, 1 mit Exponent, 2 ganz); der Wert
+entsteht mit einem Byte-Trick in <code>N2S_END0</code>/<code>N2S_END</code> (<code>LD A,01h / DEFB 01h / LD A,00h</code>, und der
+Operand von <code>LD BC,023Eh</code> ist zugleich <code>LD A,02h</code>).</p>
+<h3 id="using-parse">USING_PARSE</h3>
+<p><code>USING_PARSE</code> geht die Schablone einmal durch und füllt 13 Bytes Variablen:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th style="text-align: right;">Adresse</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>USG_PRELEN</code></td>
+<td style="text-align: right;">549Ah</td>
+<td>Länge des Präfixtexts (schon nach <code>USING_FMT</code> kopiert)</td>
+</tr>
+<tr>
+<td><code>USG_SUFLEN</code>, <code>USG_SUFPTR</code></td>
+<td style="text-align: right;">549Bh, 549Ch</td>
+<td>Länge und Lage des Suffixtexts</td>
+</tr>
+<tr>
+<td><code>USG_CURR</code></td>
+<td style="text-align: right;">549Eh</td>
+<td>Währungszeichen <code>$</code>, £ oder <code>@</code></td>
+</tr>
+<tr>
+<td><code>USG_SIGN</code></td>
+<td style="text-align: right;">549Fh</td>
+<td><code>+</code> oder <code>-</code></td>
+</tr>
+<tr>
+<td><code>USG_POINT</code></td>
+<td style="text-align: right;">54A0h</td>
+<td>Lage des Dezimalpunkts in der Schablone</td>
+</tr>
+<tr>
+<td><code>USG_FILL</code></td>
+<td style="text-align: right;">54A2h</td>
+<td>Ziffernzeichen <code>#</code> oder <code>*</code></td>
+</tr>
+<tr>
+<td><code>USG_INTDIG</code>, <code>USG_FRACDIG</code></td>
+<td style="text-align: right;">54A3h, 54A5h</td>
+<td>Ziffernstellen vor und hinter dem Punkt</td>
+</tr>
+</tbody>
+</table>
+<p>Die Zeichenklassen prüft <code>USING_MATCH</code> (5420h) mit drei überlappenden Listen ab
+<code>USING_CHARS</code>: alle Formatzeichen, darin ab <code>USING_SIGNS</code> die Vorzeichen- und Währungszeichen,
+und <code>USING_DIGCH</code> mit <code>#</code> und <code>*</code>.</p>
+<h3 id="num-out">NUM_OUT</h3>
+<ol>
+<li>Exponentform → Fehler 1. Präfix ausgeben.</li>
+<li>Stellen der Zahl vor dem Punkt zählen. Zu viele: <code>NOU_OVERFLOW</code> gibt <code>%</code> und alles aus.</li>
+<li>Freie Stellen vorn mit Leerzeichen oder <code>*</code> füllen, Kommas dazwischen ebenfalls.</li>
+<li><code>USING_SIGN</code>: Währungszeichen, dann <code>-</code>, <code>+</code> oder Leerzeichen nach <code>USG_SIGN</code>.</li>
+<li><code>USING_DIGS</code> (543Dh): Ziffern nach der Schablone, <code>,</code> und <code>.</code> übernehmen, <code>X</code> als
+   Leerzeichen, nach dem Ende der Ziffern <code>0</code>; bei gesetztem Byte 002Dh <code>O</code> statt <code>0</code>.</li>
+<li>Nachkommastellen (<code>USG_FRACDIG</code>), dann Suffix bzw. 0Dh.</li>
+</ol>
+<p>Der Text in <code>USING_FMT</code> wird danach wie jedes andere <code>PRINT</code>-Element ausgegeben.</p>
+<footer><div class="pn"><a class="prev" href="zahlen.html">← BCD-Zahlen und Arithmetik</a><a class="next" href="befehle.html">Befehlsreferenz →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

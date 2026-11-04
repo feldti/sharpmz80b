@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gleitkomma und Mathematik – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li class="cur"><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#zahlformat">Zahlformat</a></li><li><a href="#aufrufkonvention">Aufrufkonvention</a></li><li><a href="#grundrechenarten">Grundrechenarten</a></li><li><a href="#umwandlung-text-zahl">Umwandlung Text ↔ Zahl</a></li><li><a href="#mathematische-funktionen">Mathematische Funktionen</a></li><li><a href="#fehler-der-arithmetik">Fehler der Arithmetik</a></li></ul></aside>
+<h1 id="gleitkomma-arithmetik-und-mathematik">Gleitkomma-Arithmetik und Mathematik</h1>
+<p>SB-6511 kennt nur einen Zahlentyp: eine binäre Gleitkommazahl mit 5 Bytes. Ganzzahlen werden
+bei Bedarf daraus abgeleitet (<code>EVAL_INT</code>, <code>VAL2UINT</code>, <code>INT2VAL</code>). Die Routinen liegen bei
+2E43h–3C35h.</p>
+<h2 id="zahlformat">Zahlformat</h2>
+<pre><code>Byte 0      Byte 1   Byte 2   Byte 3   Byte 4
+S EEEEEEE   m7..m0   m15..m8  m23..m16 m31..m24
+│ └─ Exponent mit Bias 40h (7 Bit)
+└─── Vorzeichen: 1 = positiv, 0 = negativ
+</code></pre>
+<ul>
+<li>Die Mantisse ist 32 Bit lang, Low-Byte zuerst, und normiert: 0,5 ≤ m &lt; 1, also Bit 31 = 1.</li>
+<li>Wert = m · 2^(E − 40h), negativ, wenn Bit 7 des ersten Bytes 0 ist.</li>
+<li><strong>Null</strong> wird als <code>80h 00h 00h 00h 00h</code> dargestellt.</li>
+<li>Genauigkeit: 32 Bit entsprechen gut 9 Dezimalstellen; ausgegeben werden höchstens 8.</li>
+<li>Bereich: Exponent −64 … +63, also Beträge von etwa 2,7·10⁻²⁰ bis 9,2·10¹⁸.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Konstante</th>
+<th>Bytes</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FP_ONE</code></td>
+<td><code>C1 00 00 00 80</code></td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>FP_PI</code></td>
+<td><code>C2 A1 DA 0F C9</code></td>
+<td>3,14159265</td>
+</tr>
+<tr>
+<td><code>FP_PI2</code></td>
+<td><code>C1 A1 DA 0F C9</code></td>
+<td>1,57079633 (π/2)</td>
+</tr>
+<tr>
+<td><code>FPK_23</code></td>
+<td><code>C5 00 00 00 B8</code></td>
+<td>23</td>
+</tr>
+<tr>
+<td><code>LOG_K</code></td>
+<td><code>BF A9 D8 5B DE</code></td>
+<td>0,434294482 (1/ln 10)</td>
+</tr>
+</tbody>
+</table>
+<p>Im Programmtext steht π als einzelnes Byte <code>FFh</code>; <code>PRIMARY</code> setzt dafür <code>FP_PI</code> ein.</p>
+<h2 id="aufrufkonvention">Aufrufkonvention</h2>
+<p>Alle Rechenroutinen arbeiten im Speicher:</p>
+<ul>
+<li><strong>DE</strong> zeigt auf den linken Operanden und bekommt das Ergebnis,</li>
+<li><strong>HL</strong> zeigt auf den rechten Operanden.</li>
+</ul>
+<p>So kann der Ausdrucksauswerter direkt auf dem Wertestack rechnen. Für Polynome gibt es vier
+Arbeitszellen <code>FP_W1</code>–<code>FP_W4</code> und die Helfer <code>FPW1_ADD</code>, <code>FPW1_MUL</code> und <code>FPW1_ADDMUL</code>
+(FP_W1 = (FP_W1 + (HL)) · FP_W2) für das Horner-Schema.</p>
+<h2 id="grundrechenarten">Grundrechenarten</h2>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Adresse</th>
+<th>Verfahren</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OP_ADD</code>, <code>OP_SUB</code></td>
+<td>2E45h, 2E43h</td>
+<td>Operanden nach Größe ordnen, den kleineren um die Exponentdifferenz nach rechts schieben (erst ganze Bytes, dann Bits), addieren bzw. subtrahieren, bei negativem Zwischenergebnis Zweierkomplement (<code>MANT_NEG</code>), normieren (<code>FP_NORM</code>). Überlauf: Fehler 2, Unterlauf: 0</td>
+</tr>
+<tr>
+<td><code>OP_MUL</code></td>
+<td>2F40h</td>
+<td>Exponenten addieren (Bereich prüfen), 32×32-Bit-Mantissen bitweise multiplizieren; die Teilsumme liegt in HL und den Schattenregistern HL'. Ergebnis wird gerundet</td>
+</tr>
+<tr>
+<td><code>OP_DIV</code></td>
+<td>3010h</td>
+<td>Exponenten subtrahieren, Mantissen durch fortgesetztes Subtrahieren teilen, Ergebnisbytes über den Stack sammeln. Division durch 0 und Überlauf: Fehler 2</td>
+</tr>
+<tr>
+<td><code>OP_POW</code></td>
+<td>3BA3h</td>
+<td>x^y = EXP(y · LN(x)). Basis 0 ergibt 0. Negative Basis nur mit ganzzahligem Exponenten (sonst Fehler 3); ungerader Exponent macht das Ergebnis negativ (<code>POW_ODD</code>)</td>
+</tr>
+<tr>
+<td><code>FP_CMP</code></td>
+<td>–</td>
+<td>(DE) mit (HL) vergleichen: Z bei Gleichheit, C wenn (DE) &lt; (HL)</td>
+</tr>
+<tr>
+<td>Vergleiche <code>OP_EQ</code> …</td>
+<td>35ACh–35D5h</td>
+<td>Ergebnis −1 (wahr) oder 0 (falsch) über <code>FP_CMP</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="umwandlung-text-zahl">Umwandlung Text ↔ Zahl</h2>
+<h3 id="str2num-text-in-zahl">STR2NUM – Text in Zahl</h3>
+<p><code>STR2NUM</code> (30B0h) liest Ziffern, einen Dezimalpunkt und einen Exponenten <code>E[+|-]nn</code>.
+Leerzeichen zwischen den Zeichen werden überlesen.</p>
+<ol>
+<li>Bis zu <strong>9 gültige Ziffern</strong> werden als ganze Zahl gesammelt (<code>DIG_INT</code>/<code>DIG_FRAC</code>,
+   <code>DIG_MUL10</code>: Zahl · 10 + Ziffer); weitere Ziffern werden nur gezählt.</li>
+<li>Der Dezimalexponent ergibt sich aus der Position des Punkts, der Zahl verworfener Ziffern und
+   der Angabe hinter <code>E</code> (<code>NUM_DEXP</code>).</li>
+<li>Die ganze Zahl wird ins Gleitkommaformat gebracht und mit der passenden Zehnerpotenz aus
+   <code>POW10TAB</code> multipliziert.</li>
+</ol>
+<p>Ein Exponent mit mehr als zwei Ziffern oder ein zu großer Wert ergibt Fehler 2.</p>
+<h3 id="pow10tab">POW10TAB</h3>
+<p><code>POW10TAB</code> (31F8h) enthält die Zehnerpotenzen 10⁻²⁹ bis 10¹⁹ (49 Einträge × 5 Bytes). Das Format
+entspricht den Gleitkommazahlen, jedoch ohne Vorzeichenbit: Exponentbyte = 40h + Zweierexponent
+(8 Bit, umlaufend). Eintrag n = 10^(n−29). Die Tabelle dient <code>STR2NUM</code>, <code>FP2DIGITS</code> und <code>INT</code>.</p>
+<h3 id="num2str-zahl-in-text">NUM2STR – Zahl in Text</h3>
+<p><code>NUM2STR</code> (3305h) erzeugt die Ausgabe von <code>PRINT</code> und <code>STR$</code>:</p>
+<ol>
+<li><code>FP2DIGITS</code> (33E1h) zerlegt den Betrag in 9 Dezimalziffern und einen Dezimalexponenten: die
+   passende Zehnerpotenz suchen, dividieren, Ziffern durch fortgesetztes Malnehmen mit 10
+   bilden. Die 9. Ziffer dient zum Runden auf <strong>8 Stellen</strong> (<code>F2D_ROUND</code>).</li>
+<li>Vorzeichen: Leerzeichen für positive Zahlen, <code>-</code> für negative.</li>
+<li>Darstellung:</li>
+<li>normale Größenordnung: Festkomma, nachfolgende Nullen und ein überflüssiger Punkt werden
+     entfernt (<code>N2S_FIXED</code>, <code>N2S_FIX_TRIM</code>),</li>
+<li>sehr große oder kleine Beträge: Exponentform <code>d.ddddddE+nn</code> bzw. <code>E-nn</code> (<code>N2S_EXPFMT</code>),</li>
+<li>0 wird als <code>0</code> ausgegeben.</li>
+</ol>
+<h3 id="ganzzahlen">Ganzzahlen</h3>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>INT2VAL</code></td>
+<td>DE (0–65535) als Gleitkommazahl auf den Wertestack</td>
+</tr>
+<tr>
+<td><code>VAL2UINT</code></td>
+<td>Wert als ganze Zahl 0–65535 nach DE (abgeschnitten), sonst Inline-Fehlerziel</td>
+</tr>
+<tr>
+<td><code>EVAL_INT</code>, <code>EVAL_BYTE</code></td>
+<td>Ausdruck auswerten und in 0–65535 bzw. 0–255 wandeln</td>
+</tr>
+</tbody>
+</table>
+<h2 id="mathematische-funktionen">Mathematische Funktionen</h2>
+<p>Alle Funktionen C0h–CBh bekommen in DE einen Zeiger auf ihr (schon ausgewertetes) Argument und
+schreiben das Ergebnis an dieselbe Stelle.</p>
+<table>
+<thead>
+<tr>
+<th>Funktion</th>
+<th>Routine</th>
+<th>Verfahren</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>INT(x)</code></td>
+<td><code>FN_INT</code> (34D0h)</td>
+<td>über die Dezimalziffern (<code>FP2DIGITS</code>): Nachkommastellen abschneiden, bei negativen Zahlen mit Rest um 1 erhöhen (größte ganze Zahl ≤ x), wieder zusammensetzen</td>
+</tr>
+<tr>
+<td><code>ABS(x)</code></td>
+<td><code>FN_ABS</code></td>
+<td>Vorzeichenbit setzen</td>
+</tr>
+<tr>
+<td><code>SGN(x)</code></td>
+<td><code>FN_SGN</code></td>
+<td>−1, 0 oder 1</td>
+</tr>
+<tr>
+<td><code>SQR(x)</code></td>
+<td><code>FN_SQR</code> (3789h)</td>
+<td>negativ: Fehler 3. Exponent halbieren, Startwert aus einer linearen Näherung (<code>SQR_K1</code>–<code>SQR_K4</code>, je nach geradem/ungeradem Exponenten), dann 3 Newton-Schritte x := (x + a/x)/2</td>
+</tr>
+<tr>
+<td><code>SIN(x)</code></td>
+<td><code>FN_SIN</code> (3660h)</td>
+<td>x/(π/2) in Quadrant und Rest 0–1 zerlegen, Polynom in x² (<code>SIN_C1</code>–<code>SIN_PI2</code>) nach Horner, Vorzeichen nach Quadrant</td>
+</tr>
+<tr>
+<td><code>COS(x)</code></td>
+<td><code>FN_COS</code></td>
+<td>SIN(π/2 − x)</td>
+</tr>
+<tr>
+<td><code>TAN(x)</code></td>
+<td><code>FN_TAN</code></td>
+<td>SIN(x)/COS(x)</td>
+</tr>
+<tr>
+<td><code>ATN(x)</code></td>
+<td><code>FN_ATN</code> (3AC0h)</td>
+<td>|x| &gt; 1 über den Kehrwert (π/2 − ATN(1/x)), Polynom in x² mit 9 Koeffizienten (<code>ATN_C0</code>–<code>ATN_C8</code>)</td>
+</tr>
+<tr>
+<td><code>EXP(x)</code></td>
+<td><code>FN_EXP</code> (384Dh)</td>
+<td>x/ln 2 in ganzzahligen Teil (wird Zweierexponent) und Rest zerlegen, 2^Rest über ein Polynom (<code>EXP_C0</code>–<code>EXP_SQRTH</code>); negatives x über den Kehrwert. Überlauf: Fehler 2</td>
+</tr>
+<tr>
+<td><code>LN(x)</code></td>
+<td><code>FN_LN</code> (397Fh)</td>
+<td>negatives Argument: Fehler 2. Zweierexponent abtrennen, Mantisse über (m − √2)/(m + √2) in eine schnell konvergierende Reihe (<code>LN_C0</code>–<code>LN_C5</code>), Exponent · ln 2 addieren</td>
+</tr>
+<tr>
+<td><code>LOG(x)</code></td>
+<td><code>FN_LOG</code> (3AAEh)</td>
+<td>LN(x) · 0,434294482</td>
+</tr>
+<tr>
+<td><code>RND(x)</code></td>
+<td><code>FN_RND</code> (35E2h)</td>
+<td>siehe unten</td>
+</tr>
+</tbody>
+</table>
+<p>Winkel werden im Bogenmaß angegeben.</p>
+<h3 id="zufallszahlen">Zufallszahlen</h3>
+<p><code>RND</code> ist ein multiplikativer Generator auf Gleitkommabasis:</p>
+<ul>
+<li><code>RND(x)</code> mit x &gt; 0: <code>RND_SEED</code> := Nachkommateil von <code>RND_SEED</code> · 23. Der neue Wert (0 ≤ r &lt; 1)
+  ist das Ergebnis.</li>
+<li><code>RND(x)</code> mit x ≤ 0: <code>RND_SEED</code> auf den Startwert <code>RND_SEED0</code> = 0,20298827 zurücksetzen.</li>
+</ul>
+<p>Nach dem Einschalten und nach <code>RND(0)</code> liefert ein Programm also immer dieselbe Folge. Eine
+„zufällige“ Folge erhält man z. B., indem man vor dem Start eine von der Uhr (<code>TI$</code>) abhängige
+Anzahl Werte verwirft.</p>
+<h2 id="fehler-der-arithmetik">Fehler der Arithmetik</h2>
+<table>
+<thead>
+<tr>
+<th>Fehler</th>
+<th>Ursache</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td>Überlauf bei +, −, ·, /, EXP, Division durch 0, LN/LOG negativer Zahlen, Exponent der Eingabe zu groß</td>
+</tr>
+<tr>
+<td>3</td>
+<td>SQR einer negativen Zahl, negative Basis mit gebrochenem Exponenten, Wert außerhalb 0–65535 bzw. 0–255 bei ganzzahligen Parametern</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Zahl und String gemischt</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="ausdruecke.html">← Ausdrücke und Variablen</a><a class="next" href="befehle.html">Befehlsreferenz →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

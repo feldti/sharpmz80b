@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aufbau und Speicher – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li class="cur"><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#vom-einschalten-bis-ready">Vom Einschalten bis „Ready“</a></li><li><a href="#speicherkarte-des-abbilds">Speicherkarte des Abbilds</a></li><li><a href="#arbeitsbereich-zur-laufzeit">Arbeitsbereich zur Laufzeit</a></li><li><a href="#monitor-routinen-die-das-basic-benutzt">Monitor-Routinen, die das BASIC benutzt</a></li></ul></aside>
+<h1 id="aufbau-und-speicher">Aufbau und Speicher</h1>
+<h2 id="vom-einschalten-bis-ready">Vom Einschalten bis „Ready“</h2>
+<p>Das IPL-ROM des MZ-80B lädt das Abbild (7E00h Bytes) von Diskette nach 8000h und löst den
+„Normal Start“ aus: Das ROM wird ausgeblendet, das Abbild liegt ab 0000h. Dort beginnt der Monitor
+SB-1510 (<code>MON_INIT</code>), der die I/O-Bausteine über <code>IOINIT_TAB</code> programmiert, den
+40-Zeichen-Modus einstellt, seinen Arbeitsspeicher löscht, <code>IM 1</code> einschaltet und nach <code>BAS_COLD</code> springt. SB-6511 schaltet hier <code>IM 2</code>
+für die RS-232C-Interrupts ein; SB-6610 braucht keine Interrupts.</p>
+<h3 id="kaltstart-bas-cold-1222h">Kaltstart BAS_COLD (1222h)</h3>
+<ol>
+<li>Den Sprung <code>JP BAS_COLD</code> im Monitor zu <code>LD BC,nn</code> entschärfen und das Autostart-Flag setzen.</li>
+<li>Die vom IPL hinterlassene Laufwerksnummer in den Autostart-Befehl <code>RUN FDn"AUTO RUN"</code>
+   (<code>AUTORUN_CMD</code>) eintragen.</li>
+<li>RAM-Test ab <code>RAM_START</code> (6000h) bis FF00h: Das erste nicht beschreibbare Byte wird
+   <code>MEMTOP</code> und Anfangswert des Stacks (<code>STKTOP</code>). Ab <code>BC_RAMEND</code> (1246h) geht es weiter.</li>
+<li>Piepton, Uhr starten (<code>TIMER_SET</code>), Einschaltmeldung mit Rahmen aus Zeichen 90h:
+   <code>Double precision BASIC  SB-6610</code>, <code>Copyright 1981 by SHARP Corp.</code></li>
+<li><code>CLEARALL</code> (leeres Programm), freien Speicher ausgeben („22123 Bytes“ bei 64 KB).</li>
+<li>Über <code>BAS_START2</code> zur Eingabeschleife; mit gesetztem Autostart-Flag holt <code>INLINE</code> statt einer
+   Tastaturzeile den Befehl <code>RUN FDn"AUTO RUN"</code>. Fehlt die Datei, endet das mit einer Fehlermeldung
+   und „Ready“.</li>
+</ol>
+<h3 id="warmstart-bas-ready-1280h-und-hauptschleife">Warmstart BAS_READY (1280h) und Hauptschleife</h3>
+<p><code>BAS_READY</code> setzt den Stack zurück, schaltet den Floppy-Motor ab (<code>MOTOR_OFF</code>), meldet „Ready“
+und läuft in <code>BAS_MAIN</code> (1296h): <code>INLINE</code> liest eine Zeile nach <code>INBUF</code>, <code>CRUNCH</code>
+tokenisiert sie, <code>BAS_DIRECT</code> führt sie aus oder übernimmt sie mit Zeilennummer ins Programm
+(<code>BD_EDIT</code>). In SB-6511 erledigte das eine eigene Routine <code>EDITLINE</code>; in SB-6610 ist ihr Code in
+<code>BD_EDIT</code> eingebaut, Teile davon (<code>EDIT_DEL</code>, <code>EDIT_DELMEM</code>) benutzt auch <code>DELETE</code>.</p>
+<p>Das Handbuch nennt 1220h als Kaltstart- und 1280h als Warmstartadresse; gemeint sind
+<code>BAS_COLD</code> (1222h) und <code>BAS_READY</code> (1280h).</p>
+<h2 id="speicherkarte-des-abbilds">Speicherkarte des Abbilds</h2>
+<table class="memmap">
+<tr><th>Bereich</th><th>Inhalt</th></tr>
+<tr><td>0000h–003Ah</td><td>RST-Vektoren, dazwischen Monitor-Variablen (z. B. 002Dh: „O“ statt „0“ bei PRINT USING)</td></tr>
+<tr><td>003Bh–06A3h</td><td>Monitor SB-1510: Initialisierung, Kommandos, Kassette, Hex-Ein-/Ausgabe</td></tr>
+<tr><td>06A4h–103Eh</td><td>Bildschirmeditor, Zeichenausgabe, Tastatur, Uhr, Ton, MUSIC</td></tr>
+<tr><td>103Fh–1221h</td><td>Arbeitsspeicher des Monitors (Funktionstastentexte bis 1221h)</td></tr>
+<tr><td>1222h–1E1Fh</td><td>BASIC-Kern: Start, Meldungen, Fehlerkette, Tokenizer, Schlüsselworttabellen, Zeilenverwaltung, Interpreterschleife</td></tr>
+<tr><td>1E20h–2DECh</td><td>Anweisungen, Ausdrucksauswertung, Variablen, Felder, Strings, Funktionstabelle</td></tr>
+<tr><td>2DEDh–37D6h</td><td>BCD-Arithmetik: Arbeitsbereich, Konstanten, Grundrechenarten, SQR, Vergleiche, RND, INT, STR2NUM, NUM2STR</td></tr>
+<tr><td>37D7h–3D51h</td><td>PRINT/INPUT, Geräteverteilung (DEVTAB_PRINT mit eingebettetem INT_FINISH)</td></tr>
+<tr><td>3D52h–506Ch</td><td>Dateibefehle (Kassette, Diskette), DELETE von Zeilen</td></tr>
+<tr><td>506Dh–57A3h</td><td>Drucker, PRINT USING (USING_PARSE, NUM_OUT)</td></tr>
+<tr><td>57A4h–5A12h</td><td>Grafik, CONSOLE, CSR/POS/CHARACTER$</td></tr>
+<tr><td>5A13h–5CFFh</td><td>Speicherreste (nicht erreicht), siehe unten</td></tr>
+<tr><td>5D00h–5FEFh</td><td>Floppy-Treiber (MB8876)</td></tr>
+<tr><td>5FF0h–5FFFh</td><td>Nachtrag <code>AREA_RESIZE_CLR</code></td></tr>
+<tr><td>6000h–6FFFh</td><td>im Abbild Speicherreste (RAM-Muster, Bruchstücke von Sharps Assembler-Quelltext), zur Laufzeit Arbeitsbereich</td></tr>
+<tr><td>7000h–7DFFh</td><td>BFh-Füllung</td></tr>
+</table>
+
+<p>Die Bereichsgrenzen folgen den Abschnittsbannern der Quelle; das <a href="routinen.html">Routinenverzeichnis</a>
+listet jede Routine mit Adresse.</p>
+<h3 id="speicherreste">Speicherreste</h3>
+<p>Zwei Bereiche des Abbilds enthalten keinen erreichbaren Code:</p>
+<ul>
+<li><strong>5A13h–5B19h</strong> ist eine Kopie von <code>ST_GRAPH</code> … <code>FN_CHARACTER</code> (heute 5906h–5A12h) aus einem
+  älteren Stand, in dem dieser Code 10Dh weiter hinten lag. Die Adressen darin gelten für jenen
+  Stand (z. B. <code>CALL 1987h</code> = damals <code>CHK_CHR_ALT</code>, heute 190Dh). Danach folgen ein RAM-Muster
+  (16 Bytes 00h/FFh im Wechsel) und eine Kopie des Monitor-Arbeitsspeichers ab 1050h.</li>
+<li><strong>6000h–6FFFh</strong> liegt schon im Arbeitsbereich und enthält neben dem RAM-Muster Bruchstücke von
+  Assembler-Quelltext aus der Entwicklung bei Sharp (<code>ERN1:PUSH HL</code>, <code>LD DE,(ERD3)</code>, <code>CALL TESTX</code>
+  …) – offenbar Reste aus dem Speicher des Entwicklungssystems.</li>
+</ul>
+<p>Die Quelle schließt den ersten Bereich in <code>IF NOT DEFINED NOJUNK</code> ein; ohne ihn steht der Platz
+am Ende des Codes frei (<a href="erweitern.html">Erweitern</a>).</p>
+<h2 id="arbeitsbereich-zur-laufzeit">Arbeitsbereich zur Laufzeit</h2>
+<p>Der Arbeitsbereich beginnt bei <code>RAM_START</code> (6000h) statt bei 6B00h. Weil der
+RS-232C-Ringpuffer fehlt und die Zahlen größer sind, haben sich alle Adressen verschoben, nicht
+alle um denselben Betrag.</p>
+<table class="memmap">
+<tr><th>Adresse</th><th>Name</th><th>Inhalt</th></tr>
+<tr><td>6008h</td><td>MEMTOP, STKTOP</td><td>RAM-Ende, Anfangswert des Stacks</td></tr>
+<tr><td>600Dh</td><td>INBUF</td><td>Eingabe- und Zeilenpuffer</td></tr>
+<tr><td>610Eh</td><td>TOKLINE</td><td>CRUNCH-Ergebnis als Programmzeile (Link, Nummer, Text)</td></tr>
+<tr><td>63D3h</td><td>TAPEBUF</td><td>Puffer der Kassettendatei (256 Bytes)</td></tr>
+<tr><td>64D3h</td><td>USING_PTR</td><td>PRINT USING: Zeiger, 0 = ohne USING (neu)</td></tr>
+<tr><td>64D6h</td><td>USING_FMT</td><td>PRINT USING: aufbereitete Ausgabe (neu)</td></tr>
+<tr><td>65D3h</td><td>FC_IDX …</td><td>aktuelle Datei (Kopie des Tabelleneintrags)</td></tr>
+<tr><td>65F2h</td><td>FILETAB</td><td>Dateitabelle, 10 Einträge zu 9 Bytes</td></tr>
+<tr><td>664Eh</td><td>PRGEND, P_*</td><td>Bereichszeiger: Programmende, Dateipuffer, DEF FN, Felder, Variablen, Strings</td></tr>
+<tr><td>6694h</td><td>VALSP</td><td>Zeiger auf den Wertestack (9-Byte-Einträge)</td></tr>
+<tr><td>6696h</td><td>FNPAR_SP, FOR_SP, GOSUB_SP</td><td>Zeiger der drei Stacks (FN ab 66BAh, FOR ab 684Fh, GOSUB ab 68B8h abwärts)</td></tr>
+<tr><td>68B8h</td><td>FOR_VAR …</td><td>FOR-Eintrag im Aufbau: Variable, Schrittweite (9), Vorzeichen, Endwert (9)</td></tr>
+<tr><td>68CDh</td><td>CURLINE, TXTPTR …</td><td>aktuelle Zeile, Textzeiger, Zähler, ON ERROR, READ</td></tr>
+<tr><td>68DDh</td><td>PRGTXT</td><td>Beginn des BASIC-Programms, danach Variablen und Felder</td></tr>
+</table>
+
+<p>Die dynamischen Bereiche (Programm, DEF FN, Felder, Variablen, Strings, Wertestack) liegen wie bei
+SB-6511 hintereinander und werden beim Einfügen verschoben; siehe
+<a href="../../basic-sb6511/doku-basic/architektur.html#die-dynamischen-bereiche">SB-6511: Die dynamischen Bereiche</a>.
+Neu ist nur der Nachtrag <code>AREA_RESIZE_CLR</code>, der nach dem Umbau eines Dateipuffers die zwei Wörter
+hinter dem Zeiger 6680h auf 0 setzt.</p>
+<h2 id="monitor-routinen-die-das-basic-benutzt">Monitor-Routinen, die das BASIC benutzt</h2>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GETLINE</code></td>
+<td style="text-align: right;">06A4h</td>
+<td>Zeile mit dem Bildschirmeditor einlesen</td>
+</tr>
+<tr>
+<td><code>PRTCHR_RAW</code></td>
+<td style="text-align: right;">0907h</td>
+<td>Zeichen ausgeben, Spalte zählen</td>
+</tr>
+<tr>
+<td><code>DISPCTRL</code></td>
+<td style="text-align: right;">0A6Eh</td>
+<td>Steuerzeichen ausführen (CR, Cursor, Löschen …)</td>
+</tr>
+<tr>
+<td><code>TIMER_SET</code>, <code>TIMER_GET</code></td>
+<td style="text-align: right;">0E06h, 0E51h</td>
+<td>Uhr über den 8253 (TI$, RND mit negativem Argument)</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="unterschiede.html">← Unterschiede zu SB-6511</a><a class="next" href="tokenizer.html">Tokenizer und Programmtext →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

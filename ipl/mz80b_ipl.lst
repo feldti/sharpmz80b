@@ -1,0 +1,1085 @@
+                      ;==============================================================================
+                      ;  SHARP MZ-80B  –  IPL-ROM (Initial Program Loader), 2 KByte, 0000h-07FFh
+                      ;==============================================================================
+                      ;  Kommentiertes Disassembly des Boot-ROMs "IPL.rom" (2048 Bytes,
+                      ;  davon 0000h-061Fh belegt, Rest mit FFh gefüllt).
+                      ;
+                      ;  Reassemblierbar mit pasmo, ergibt ein bytegleiches Image. z88dk-z80asm
+                      ;  liefert dasselbe, wenn man die letzte Zeile (END) entfernt.
+                      ;
+                      ;  Funktion im Überblick
+                      ;  ---------------------
+                      ;  Nach dem Einschalten (bzw. "IPL RESET") blendet die Hardware dieses
+                      ;  ROM bei 0000h ein. Der 64-KByte-RAM ist dann so gemappt, dass die
+                      ;  unteren 32 KByte physikalischen RAMs bei 8000h-FFFFh liegen. Das IPL
+                      ;  lädt das Betriebssystem/BASIC von
+                      ;     - Kassette (CMT, eingebautes Laufwerk),
+                      ;     - Diskette  (MB8876-FDC, Ports D8h-DDh), oder
+                      ;     - einer externen Speicherkarte an Port F8h/F9h
+                      ;  nach 8000h (= physikalisch 0000h) und löst dann über PC1 des 8255 einen
+                      ;  "Normal Start" (NST) aus: das ROM wird ausgeblendet, die CPU zurückgesetzt
+                      ;  und das geladene Programm startet bei 0000h im RAM.
+                      ;
+                      ;  Boot-Auswahl beim Einschalten (Tastatur, Zeile 4):
+                      ;     Taste C gedrückt   -> Kassette
+                      ;     Taste / gedrückt   -> externe Speicherkarte (F8h/F9h)
+                      ;     sonst              -> Diskette, falls FDC vorhanden, sonst Kassette
+                      ;
+                      ;  Hardware-Belegung (Quelle: MAME-Treiber sharp/mz2000.cpp, Verhalten
+                      ;  im Code; Unsicheres ist im Text als "vermutlich" markiert)
+                      ;------------------------------------------------------------------------------
+                      
+                      ; --- 8255 PPI ---------------------------------------------------------------
+                      PPI_A   EQU     0E0h    ; Port A (Ausgang): Kassettensteuerung, flankengetriggert 0->1
+                                              ;   Bit0 REW   Bit1 FF    Bit2 PLAY  Bit3 STOP
+                                              ;   Bit4 1 = normale (nicht inverse) Darstellung
+                                              ;   Bit5 AREW  Bit6 APLAY Bit7 APSS
+                      PPI_B   EQU     0E1h    ; Port B (Eingang):
+                                              ;   Bit0 /VBLANK  Bit3 Bandende  Bit4 kein Schreibsignal
+                                              ;   Bit5 1 = Kassette nicht bereit (kein Band / nicht in PLAY)
+                                              ;   Bit6 Lesedaten vom Band
+                                              ;   Bit7 BREAK-Taste (0 = gedrückt)
+                      PPI_C   EQU     0E2h    ; Port C (Ausgang):
+                                              ;   Bit0 Video-Gate  Bit1 0->1 = NST (RAM-Start, CPU-Reset)
+                                              ;   Bit2 Piezo/DAC   Bit3 1->0 = IPL-Reset
+                                              ;   Bit4 Kassettenfach öffnen (Eject, Impuls)
+                                              ;   Bit5 Kassette (Funktion unklar, wird vor PLAY/REW gepulst)
+                                              ;   Bit6 REC         Bit7 Schreibdaten Band
+                      PPI_CTL EQU     0E3h    ; Steuerwort / Bit-Set-Reset für Port C
+                      
+                      ; --- Z80 PIO ----------------------------------------------------------------
+                      PIO_AD  EQU     0E8h    ; Port A Daten (Ausgang):
+                                              ;   Bit0-3 Tastaturzeile, Bit4 Zeilen-Strobe
+                                              ;   Bit5 1 = 80 Zeichen/Zeile, 0 = 40 Zeichen
+                                              ;   Bit6 VRAM-Lage: 0 = D000h-FFFFh, 1 = 5000h-7FFFh
+                                              ;   Bit7 1 = VRAM in den Adressraum einblenden
+                      PIO_AC  EQU     0E9h    ; Port A Control
+                      PIO_BD  EQU     0EAh    ; Port B Daten (Eingang): Tastaturspalten, 0 = gedrückt
+                      PIO_BC  EQU     0EBh    ; Port B Control
+                      
+                      ; --- Floppy: MB8876 (WD1791-kompatibel, invertierter Datenbus!) -------------
+                      FDC_CMD EQU     0D8h    ; schreiben: Kommando / lesen: Status   (alles invertiert)
+                      FDC_TRK EQU     0D9h    ; Spurregister
+                      FDC_SEC EQU     0DAh    ; Sektorregister
+                      FDC_DAT EQU     0DBh    ; Datenregister
+                      FDD_SEL EQU     0DCh    ; Bit0-1 Laufwerk, Bit2 Laufwerkswahl aktiv, Bit7 Motor an
+                      FDD_SID EQU     0DDh    ; Seitenwahl
+                      
+                      ; --- Sonstiges --------------------------------------------------------------
+                      GRPH    EQU     0F4h    ; Grafik-VRAM: Bank / Anzeige-Maske
+                      EXT_AH  EQU     0F8h    ; externe Speicherkarte: Adresse High (schreiben)
+                      EXT_AL  EQU     0F9h    ; externe Speicherkarte: Adresse Low (schreiben) / Daten (lesen)
+                                              ; (laut MAME F8h-FAh = MZ-1R12, batteriegepufferte CMOS-RAM-Karte)
+                      
+                      ; --- Speicher ---------------------------------------------------------------
+                      LOADADR EQU     8000h   ; Ladeadresse (= physikalisch 0000h nach dem NST)
+                      HDRBUF  EQU     0CF00h  ; Puffer für Kassetten-Header / Disketten-Bootsektor
+                      H_ATTR  EQU     0CF00h  ;   CMT: Dateiattribut (01h = Maschinenprogramm)
+                      H_NAME  EQU     0CF01h  ;   CMT: Dateiname (17 Byte, angezeigt werden 16)
+                      H_SIZE  EQU     0CF12h  ;   CMT: Programmlänge
+                      D_NAME  EQU     0CF07h  ;   FD : Name hinter der Kennung 01h,"IPLPRO"
+                      D_SIZE  EQU     0CF14h  ;   FD : Programmlänge in Bytes
+                      D_START EQU     0CF1Eh  ;   FD : logische Startsektornummer
+                      TVRAM   EQU     0D000h  ; Text-VRAM (wenn PIO-A Bit7=1, Bit6=0)
+                      
+                      ; --- Variablen oberhalb des Stacks (Stack wächst ab FFE0h abwärts) ----------
+                      V_CHK   EQU     0FFE0h  ; CMT: Prüfsumme (Anzahl 1-Bits, 16 Bit)
+                                              ; FD : Parameterblock, über IY adressiert:
+                                              ;   IY+0 aktuelle log. Spur   IY+1 aktueller Sektor
+                                              ;   IY+2/3 Byteanzahl         IY+4 Startspur  IY+5 Startsektor
+                      V_TMARK EQU     0FFE2h  ; CMT: Soll-Längen der Bandmarke (H = lang, L = kurz)
+                      V_MOTOR EQU     0FFE6h  ; FD : 1 = Motor läuft bereits
+                      V_RECAL EQU     0FFE7h  ; FD : 4 Flags, je Laufwerk "Restore bereits erfolgt"
+                      V_RETRY EQU     0FFEBh  ; FD : Wiederholungszähler
+                      V_DRIVE EQU     0FFECh  ; FD : Laufwerksnummer 0-3
+                      
+                              ORG     0000h
+                      
+                      ;==============================================================================
+                      ;  Einsprung nach Reset
+                      ;==============================================================================
+0000  18 04           RESET:  JR      INIT            ; Reset-Einsprung: NST-Befehl überspringen
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  START_RAM – geladenes Programm starten.
+                      ;  PC1 := 1 (0->1-Flanke) löst den "Normal Start" aus: IPL-ROM wird
+                      ;  ausgeblendet, RAM liegt ab 0000h, die CPU wird zurückgesetzt und
+                      ;  beginnt bei 0000h mit dem gerade nach 8000h geladenen Programm.
+                      ;------------------------------------------------------------------------------
+                      START_RAM:
+0002  3E 03                   LD      A,03h           ; Bit-Set: PC1 = 1
+0004  D3 E3                   OUT     (PPI_CTL),A
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Hardware initialisieren
+                      ;------------------------------------------------------------------------------
+0006  3E 82           INIT:   LD      A,82h           ; 8255: Mode 0, A = Ausgang, B = Eingang, C = Ausgang
+0008  D3 E3                   OUT     (PPI_CTL),A
+000A  3E 0F                   LD      A,0Fh           ; PIO Port A: Mode 0 (Ausgabe)
+000C  D3 E9                   OUT     (PIO_AC),A
+000E  3E CF                   LD      A,0CFh          ; PIO Port B: Mode 3 (Bit-Modus) ...
+0010  D3 EB                   OUT     (PIO_BC),A
+0012  3E FF                   LD      A,0FFh          ; ... alle 8 Bits als Eingang
+0014  D3 EB                   OUT     (PIO_BC),A
+0016  3E 58                   LD      A,58h           ; Port C = 0101 1000b: PC3 (IPL) = 1, PC4 (Eject) = 1,
+0018  D3 E2                   OUT     (PPI_C),A       ;   PC6 (REC) = 1 -> alle inaktiv, PC1 (NST) = 0
+001A  3E 12                   LD      A,12h           ; Port A = 0001 0010b: normale Darstellung,
+001C  D3 E0                   OUT     (PPI_A),A       ;   Kassetten-Ruhezustand
+001E  AF                      XOR     A
+001F  D3 F4                   OUT     (GRPH),A        ; Grafikanzeige aus
+0021  31 E0 FF                LD      SP,0FFE0h       ; Stack unterhalb der Variablen
+                      
+                      ; RAM D000h-FFFFh löschen. Dazu VRAM nach 5000h-7FFFh verlegen, damit hier
+                      ; der normale Arbeitsspeicher (Variablen, Stack, Header-Puffer) erreicht wird.
+0024  21 00 D0                LD      HL,0D000h
+0027  3E B3                   LD      A,0B3h          ; PIO A: VRAM ein, Lage 5000h, 80 Zeichen, Zeile 3
+0029  D3 E8                   OUT     (PIO_AD),A
+002B  36 00           CLRRAM: LD      (HL),00h
+002D  23                      INC     HL
+002E  7C                      LD      A,H
+002F  B5                      OR      L
+0030  20 F9                   JR      NZ,CLRRAM       ; bis HL über FFFFh nach 0000h läuft
+0032  3E 13                   LD      A,13h           ; PIO A: VRAM aus, 40 Zeichen, Strobe + Zeile 3 (BREAK)
+0034  D3 E8                   OUT     (PIO_AD),A
+0036  AF                      XOR     A
+0037  32 EC FF                LD      (V_DRIVE),A     ; Laufwerk 1 (=0) als Vorgabe
+003A  32 E6 FF                LD      (V_MOTOR),A     ; Floppymotor gilt als aus
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Boot-Medium wählen (Tastaturzeile 4: Bit0 = "/", Bit3 = "C")
+                      ;------------------------------------------------------------------------------
+003D  CD 4B 00                CALL    KEYROW4
+0040  CB 5F                   BIT     3,A             ; Taste C gedrückt?
+0042  28 27                   JR      Z,BOOT_CMT      ;   ja -> Kassette erzwingen
+0044  CB 47                   BIT     0,A             ; Taste / gedrückt?
+0046  CA EF 05                JP      Z,BOOT_EXT      ;   ja -> externe Speicherkarte F8h/F9h
+0049  18 0C                   JR      BOOT_AUTO       ; sonst: Floppy, wenn vorhanden
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  KEYROW4 / KEYROW – eine Tastaturzeile lesen
+                      ;  KEYROW4: Zeile 4 mit Strobe (14h).  KEYROW: Zeilencode in B.
+                      ;  Rückgabe: A = Spaltenbits (0 = Taste gedrückt)
+                      ;  Die oberen 4 Bits von PIO-A (VRAM-/Breiten-Steuerung) bleiben erhalten.
+                      ;------------------------------------------------------------------------------
+                      KEYROW4:
+004B  06 14                   LD      B,14h           ; Strobe (Bit4) + Zeile 4
+004D  DB E8           KEYROW: IN      A,(PIO_AD)      ; aktuellen PIO-A-Zustand zurücklesen
+004F  E6 F0                   AND     0F0h
+0051  B0                      OR      B               ; Zeilennummer einsetzen
+0052  D3 E8                   OUT     (PIO_AD),A
+0054  DB EA                   IN      A,(PIO_BD)      ; Spalten einlesen
+0056  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  BOOT_AUTO – Floppy-Boot, wenn ein FDC gefunden wird, sonst Kassette
+                      ;------------------------------------------------------------------------------
+                      BOOT_AUTO:
+0057  CD 5F 00                CALL    FDCTEST
+005A  CA 3C 03                JP      Z,BOOT_FD       ; FDC vorhanden -> von Diskette booten
+005D  18 0C                   JR      BOOT_CMT        ; sonst Kassette
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  FDCTEST – Ist ein Floppy-Controller vorhanden?
+                      ;  Schreibt A5h ins Spurregister und liest es zurück.  Z = FDC vorhanden.
+                      ;------------------------------------------------------------------------------
+                      FDCTEST:
+005F  3E A5                   LD      A,0A5h
+0061  47                      LD      B,A
+0062  D3 D9                   OUT     (FDC_TRK),A
+0064  CD D6 05                CALL    DLY_85US
+0067  DB D9                   IN      A,(FDC_TRK)
+0069  B8                      CP      B
+006A  C9                      RET
+                      
+                      ;==============================================================================
+                      ;  BOOT_CMT – Laden von Kassette
+                      ;==============================================================================
+                      BOOT_CMT:
+006B  CD B5 01                CALL    CMT_STOP        ; Laufwerk in definierten Zustand (STOP)
+006E  CD 1D 02                CALL    DLY_240MS
+0071  CD CE 01                CALL    MSG_LOOK        ; "IPL is looking for a program"
+0074  CD AE 00                CALL    CMT_RDHDR       ; Header (128 Byte) nach CF00h lesen
+0077  38 17                   JR      C,CMT_DONE      ; Fehler / BREAK
+0079  CD 30 02                CALL    MSG_LOAD        ; "IPL is loading" ...
+007C  21 01 CF                LD      HL,H_NAME       ; ... + Dateiname (16 Zeichen) dahinter
+007F  1E 10                   LD      E,10h           ;     Spalte 16, Zeile 0
+0081  0E 10                   LD      C,10h
+0083  CD 39 02                CALL    PRINT
+0086  3A 00 CF                LD      A,(H_ATTR)
+0089  FE 01                   CP      01h             ; Attribut 01h = Maschinenprogramm?
+008B  20 11                   JR      NZ,CMT_MODEERR
+008D  CD CF 00                CALL    CMT_RDDATA      ; Programm nach 8000h laden
+                      CMT_DONE:
+0090  F5                      PUSH    AF              ; Ergebnis (Carry = Fehler) sichern
+0091  CD 1D 02                CALL    DLY_240MS
+0094  CD 0B 02                CALL    CMT_REWIND      ; Band zurückspulen
+0097  F1                      POP     AF
+0098  DA 5F 05                JP      C,MENU          ; Fehler -> Auswahlmenü
+009B  C3 02 00                JP      START_RAM       ; OK -> Programm starten
+                      
+                      CMT_MODEERR:
+009E  21 26 03                LD      HL,M_MODEERR    ; "File mode error"
+00A1  1E 0A                   LD      E,0Ah
+00A3  0E 0F                   LD      C,0Fh
+00A5  CD 46 02                CALL    CLSPRINT
+00A8  CD B5 01                CALL    CMT_STOP
+00AB  37                      SCF
+00AC  18 E2                   JR      CMT_DONE
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_RDHDR – Header-Block von Band lesen
+                      ;  D Bit3 = 0 kennzeichnet "Header" (lange Bandmarke, Motor läuft weiter)
+                      ;  CMT_RDBLK – gemeinsamer Teil; Eingang HL = Ziel, BC = Länge, D = Typ
+                      ;  Rückgabe: Carry = Fehler oder BREAK
+                      ;------------------------------------------------------------------------------
+                      CMT_RDHDR:
+00AE  F3                      DI
+00AF  16 04                   LD      D,04h           ; Typ: Header
+00B1  01 80 00                LD      BC,0080h        ; 128 Bytes
+00B4  21 00 CF                LD      HL,HDRBUF
+                      CMT_RDBLK:
+00B7  CD 86 01                CALL    CMT_READY       ; Kassette bereit machen, PLAY
+00BA  38 0E                   JR      C,CMT_RDEND
+00BC  CD 52 01                CALL    CMT_TMARK       ; auf Bandmarke synchronisieren
+00BF  38 09                   JR      C,CMT_RDEND
+00C1  CD DB 00                CALL    CMT_BLOCK       ; Datenblock + Prüfsumme lesen
+00C4  38 04                   JR      C,CMT_RDEND
+00C6  CB 5A                   BIT     3,D             ; Header?
+00C8  28 03                   JR      Z,CMT_RDRET     ;   ja: Band weiterlaufen lassen
+                      CMT_RDEND:
+00CA  CD B5 01                CALL    CMT_STOP        ; Daten fertig oder Fehler: Band anhalten
+                      CMT_RDRET:
+00CD  FB                      EI
+00CE  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_RDDATA – Programmblock lesen: Länge aus Header, Ziel 8000h
+                      ;------------------------------------------------------------------------------
+                      CMT_RDDATA:
+00CF  F3                      DI
+00D0  16 08                   LD      D,08h           ; Typ: Daten (kurze Bandmarke)
+00D2  ED 4B 12 CF             LD      BC,(H_SIZE)
+00D6  21 00 80                LD      HL,LOADADR
+00D9  18 DC                   JR      CMT_RDBLK
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_BLOCK – BC Bytes nach (HL) lesen, danach 2 Byte Prüfsumme (High zuerst).
+                      ;  Die Prüfsumme ist die Anzahl der 1-Bits.  Jeder Block steht zweimal auf
+                      ;  dem Band; bei Prüfsummenfehler wird die zweite Kopie gelesen.
+                      ;  Rückgabe: Carry = Fehler (BREAK oder beide Kopien defekt)
+                      ;------------------------------------------------------------------------------
+                      CMT_BLOCK:
+00DB  D5                      PUSH    DE
+00DC  C5                      PUSH    BC
+00DD  E5                      PUSH    HL
+00DE  26 02                   LD      H,02h           ; 2 Versuche (Original + Kopie)
+                      BLK_SYNC:
+00E0  CD 7A 01                CALL    CMT_BIT         ; auf das erste lange Bit (Blockbeginn) warten
+00E3  38 38                   JR      C,BLK_EXIT
+00E5  28 F9                   JR      Z,BLK_SYNC      ; kurze Bits (Lücke) überlesen
+00E7  54                      LD      D,H             ; D = verbleibende Versuche
+00E8  21 00 00                LD      HL,0000h
+00EB  22 E0 FF                LD      (V_CHK),HL      ; Prüfsumme löschen
+00EE  E1                      POP     HL              ; Ziel und Länge neu holen
+00EF  C1                      POP     BC
+00F0  C5                      PUSH    BC
+00F1  E5                      PUSH    HL
+                      BLK_LOOP:
+00F2  CD 32 01                CALL    CMT_BYTE
+00F5  38 26                   JR      C,BLK_EXIT
+00F7  77                      LD      (HL),A
+00F8  23                      INC     HL
+00F9  0B                      DEC     BC
+00FA  78                      LD      A,B
+00FB  B1                      OR      C
+00FC  20 F4                   JR      NZ,BLK_LOOP
+00FE  2A E0 FF                LD      HL,(V_CHK)      ; berechnete Prüfsumme
+0101  CD 32 01                CALL    CMT_BYTE        ; Prüfsumme vom Band, High-Byte
+0104  38 17                   JR      C,BLK_EXIT
+0106  5F                      LD      E,A
+0107  CD 32 01                CALL    CMT_BYTE        ; Low-Byte
+010A  38 11                   JR      C,BLK_EXIT
+010C  BD                      CP      L
+010D  20 04                   JR      NZ,BLK_BAD
+010F  7B                      LD      A,E
+0110  BC                      CP      H
+0111  28 0A                   JR      Z,BLK_EXIT      ; stimmt (Z => Carry = 0) -> fertig
+                      BLK_BAD:
+0113  15                      DEC     D               ; noch eine Kopie?
+0114  28 03                   JR      Z,BLK_ERR
+0116  62                      LD      H,D
+0117  18 C7                   JR      BLK_SYNC        ; zweite Kopie lesen
+                      BLK_ERR:
+0119  CD 3F 02                CALL    MSG_LDERR       ; "Loading error"
+011C  37                      SCF
+                      BLK_EXIT:
+011D  E1                      POP     HL
+011E  C1                      POP     BC
+011F  D1                      POP     DE
+0120  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_EDGE – auf steigende Flanke des Bandsignals warten (PPI-B Bit6).
+                      ;  Fragt dabei BREAK ab (PPI-B Bit7): Rückgabe Carry = BREAK gedrückt.
+                      ;------------------------------------------------------------------------------
+                      CMT_EDGE:
+0121  DB E1                   IN      A,(PPI_B)
+0123  2F                      CPL
+0124  07                      RLCA                    ; Carry = BREAK gedrückt
+0125  D8                      RET     C
+0126  07                      RLCA                    ; Carry = Bandsignal low
+0127  30 F8                   JR      NC,CMT_EDGE     ; warten, solange Signal high ist
+                      EDGE_LO:
+0129  DB E1                   IN      A,(PPI_B)
+012B  2F                      CPL
+012C  07                      RLCA
+012D  D8                      RET     C               ; BREAK
+012E  07                      RLCA
+012F  38 F8                   JR      C,EDGE_LO       ; warten, solange Signal low ist
+0131  C9                      RET                     ; steigende Flanke erkannt, Carry = 0
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_BYTE – ein Byte (8 Bit, MSB zuerst) lesen; 1-Bits zählen in V_CHK.
+                      ;  Danach wird das folgende Trennbit durch Warten auf die nächste Flanke
+                      ;  übersprungen.  Rückgabe: A = Byte, Carry = BREAK
+                      ;------------------------------------------------------------------------------
+                      CMT_BYTE:
+0132  E5                      PUSH    HL
+0133  21 00 08                LD      HL,0800h        ; H = 8 Bits, L = Schieberegister
+                      BYTE_LP:
+0136  CD 7A 01                CALL    CMT_BIT
+0139  38 15                   JR      C,BYTE_EXIT     ; BREAK
+013B  28 0A                   JR      Z,BYTE_SH       ; 0-Bit (Carry ist 0)
+013D  E5                      PUSH    HL              ; 1-Bit: Prüfsumme erhöhen
+013E  2A E0 FF                LD      HL,(V_CHK)
+0141  23                      INC     HL
+0142  22 E0 FF                LD      (V_CHK),HL
+0145  E1                      POP     HL
+0146  37                      SCF                     ; Carry = 1 einschieben
+                      BYTE_SH:
+0147  CB 15                   RL      L
+0149  25                      DEC     H
+014A  20 EA                   JR      NZ,BYTE_LP
+014C  CD 21 01                CALL    CMT_EDGE        ; Trennbit überspringen
+014F  7D                      LD      A,L
+                      BYTE_EXIT:
+0150  E1                      POP     HL
+0151  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_TMARK – Bandmarke suchen: H lange Bits gefolgt von L kurzen Bits,
+                      ;  danach ein Bit überspringen.  Header: 40 lang/40 kurz, Daten: 20/20.
+                      ;  Jede Abweichung startet die Suche neu.  Rückgabe: Carry = BREAK
+                      ;------------------------------------------------------------------------------
+                      CMT_TMARK:
+0152  E5                      PUSH    HL
+0153  21 14 14                LD      HL,1414h        ; Daten: 20 lange + 20 kurze Bits
+0156  CB 5A                   BIT     3,D
+0158  20 01                   JR      NZ,TM_SET
+015A  29                      ADD     HL,HL           ; Header: 40 + 40 (2828h)
+015B  22 E2 FF        TM_SET: LD      (V_TMARK),HL
+015E  2A E2 FF        TM_RST: LD      HL,(V_TMARK)    ; Zähler neu laden
+                      TM_LONG:
+0161  CD 7A 01                CALL    CMT_BIT
+0164  38 EA                   JR      C,BYTE_EXIT     ; BREAK (gemeinsames POP HL / RET)
+0166  28 F6                   JR      Z,TM_RST        ; kurzes Bit -> von vorn
+0168  25                      DEC     H
+0169  20 F6                   JR      NZ,TM_LONG      ; bis H lange Bits in Folge
+                      TM_SHORT:
+016B  CD 7A 01                CALL    CMT_BIT
+016E  38 E0                   JR      C,BYTE_EXIT
+0170  20 EC                   JR      NZ,TM_RST       ; langes Bit -> von vorn
+0172  2D                      DEC     L
+0173  20 F6                   JR      NZ,TM_SHORT     ; bis L kurze Bits in Folge
+0175  CD 21 01                CALL    CMT_EDGE        ; Abschlussbit überspringen
+0178  18 D6                   JR      BYTE_EXIT
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_BIT – ein Bit lesen (Pulsbreitenkodierung):
+                      ;  auf steigende Flanke warten, ca. 0,18 ms warten, dann Pegel abtasten.
+                      ;  Noch high = langer Puls = 1  -> NZ;   schon low = kurzer Puls = 0 -> Z
+                      ;  Carry = BREAK.
+                      ;------------------------------------------------------------------------------
+                      CMT_BIT:
+017A  CD 21 01                CALL    CMT_EDGE
+017D  D8                      RET     C
+017E  CD 29 02                CALL    DLY_BIT
+0181  DB E1                   IN      A,(PPI_B)
+0183  E6 40                   AND     40h             ; Bandsignal (löscht Carry)
+0185  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  CMT_READY – Kassette bereit machen und PLAY starten.
+                      ;  Ist keine Kassette eingelegt (PPI-B Bit5 = 1): Meldung "Make ready CMT",
+                      ;  Kassettenfach öffnen und warten, bis eine eingelegt ist (BREAK bricht ab).
+                      ;  Rückgabe: Carry = BREAK
+                      ;------------------------------------------------------------------------------
+                      CMT_READY:
+0186  D5                      PUSH    DE
+0187  C5                      PUSH    BC
+0188  E5                      PUSH    HL
+0189  DB E1                   IN      A,(PPI_B)
+018B  E6 20                   AND     20h             ; Kassette bereit?
+018D  28 1F                   JR      Z,RDY_PLAY      ;   ja -> gleich abspielen
+018F  21 8B 02                LD      HL,M_MKCMT      ; "Make ready CMT"
+0192  1E 0A                   LD      E,0Ah
+0194  0E 0E                   LD      C,0Eh
+0196  CD 46 02                CALL    CLSPRINT
+0199  CD C2 01                CALL    CMT_EJECT       ; Kassettenfach öffnen
+                      RDY_WAIT:
+019C  DB EA                   IN      A,(PIO_BD)      ; Tastaturzeile 3 ist noch angewählt
+019E  2F                      CPL
+019F  07                      RLCA                    ; Bit7 = BREAK -> Carry
+01A0  38 0F                   JR      C,RDY_EXIT      ; BREAK -> Abbruch mit Carry
+01A2  DB E1                   IN      A,(PPI_B)
+01A4  E6 20                   AND     20h
+01A6  20 F4                   JR      NZ,RDY_WAIT     ; warten, bis Kassette eingelegt
+01A8  CD CE 01                CALL    MSG_LOOK
+01AB  CD 23 02                CALL    DLY_1600MS      ; Zeit zum Schließen des Fachs
+                      RDY_PLAY:
+01AE  CD D9 01                CALL    CMT_PLAY
+                      RDY_EXIT:
+01B1  E1                      POP     HL
+01B2  C1                      POP     BC
+01B3  D1                      POP     DE
+01B4  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Kassetten-Motorsteuerung (Impulse auf 8255 Port A / C)
+                      ;------------------------------------------------------------------------------
+                      CMT_STOP:                       ; Band anhalten
+01B5  3E 0D                   LD      A,0Dh           ; Bit-Set PC6 (REC inaktiv)
+01B7  D3 E3                   OUT     (PPI_CTL),A
+01B9  3E 1A                   LD      A,1Ah           ; PA3 0->1 = STOP
+01BB  D3 E0                   OUT     (PPI_A),A
+01BD  CD 1D 02                CALL    DLY_240MS
+01C0  18 2D                   JR      PA_IDLE         ; PA wieder auf Ruhewert 12h
+                      
+                      CMT_EJECT:                      ; Kassettenfach öffnen: PC4-Impuls 1->0->1
+01C2  3E 08                   LD      A,08h           ; Bit-Reset PC4
+01C4  D3 E3                   OUT     (PPI_CTL),A
+01C6  CD 1D 02                CALL    DLY_240MS
+01C9  3E 09                   LD      A,09h           ; Bit-Set PC4
+01CB  D3 E3                   OUT     (PPI_CTL),A
+01CD  C9                      RET
+                      
+                      MSG_LOOK:                       ; "IPL is looking for a program" (Bild löschen)
+01CE  21 6F 02                LD      HL,M_LOOK
+01D1  1E 04                   LD      E,04h
+01D3  0E 1C                   LD      C,1Ch
+01D5  CD 46 02                CALL    CLSPRINT
+01D8  C9                      RET
+                      
+                      CMT_PLAY:                       ; Wiedergabe starten
+01D9  CD F4 01                CALL    PC5_PULSE
+01DC  CD 1D 02                CALL    DLY_240MS
+01DF  3E 16                   LD      A,16h           ; PA2 0->1 = PLAY
+01E1  D3 E0                   OUT     (PPI_A),A
+01E3  18 0A                   JR      PA_IDLE
+                      
+                      CMT_REW2:                       ; zweiter Teil von CMT_REWIND
+01E5  CD 1D 02                CALL    DLY_240MS
+01E8  CD EF 01                CALL    PA_IDLE         ; PA = 12h (PA1 0->1)
+01EB  3E 13                   LD      A,13h           ; PA0 0->1 = REW
+01ED  D3 E0                   OUT     (PPI_A),A
+                      PA_IDLE:
+01EF  3E 12                   LD      A,12h           ; Ruhewert Port A
+01F1  D3 E0                   OUT     (PPI_A),A
+01F3  C9                      RET
+                      
+                      PC5_PULSE:                      ; PA = 12h setzen, dann PC5-Impuls 0->1->0
+01F4  3E 12                   LD      A,12h
+01F6  D3 E0           PC5_PA: OUT     (PPI_A),A
+01F8  CD 1D 02                CALL    DLY_240MS
+01FB  3E 0B                   LD      A,0Bh           ; Bit-Set PC5
+01FD  D3 E3                   OUT     (PPI_CTL),A
+01FF  CD 1D 02                CALL    DLY_240MS
+0202  3E 0A                   LD      A,0Ah           ; Bit-Reset PC5
+0204  D3 E3                   OUT     (PPI_CTL),A
+0206  C9                      RET
+                      
+                      CMT_PA10:                       ; wie PC5_PULSE, aber PA = 10h (PA1 = 0)
+0207  3E 10                   LD      A,10h
+0209  18 EB                   JR      PC5_PA
+                      
+                      ;  CMT_REWIND – Band zurückspulen.  Ablauf: PA1 = 0, PC5-Impuls, PA1 = 1,
+                      ;  dann PA0-Impuls (REW).  Hinweis: MAME deutet PA1 als FF und PA0 als REW
+                      ;  (jeweils 0->1-Flanke); die genaue Wirkung von PA1/PC5 ist nicht sicher.
+                      CMT_REWIND:
+020B  CD 07 02                CALL    CMT_PA10
+020E  18 D5                   JR      CMT_REW2
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Warteschleifen (Z80 @ 4 MHz)
+                      ;------------------------------------------------------------------------------
+0210  F5              DLY_BC: PUSH    AF              ; BC x ca. 1 ms
+0211  AF              DLYB_1: XOR     A
+0212  3D              DLYB_2: DEC     A
+0213  20 FD                   JR      NZ,DLYB_2       ; 256 x 16 T
+0215  0B                      DEC     BC
+0216  78                      LD      A,B
+0217  B1                      OR      C
+0218  20 F7                   JR      NZ,DLYB_1
+021A  F1                      POP     AF
+021B  C1                      POP     BC              ; BC wurde vom Aufrufer-Einsprung gesichert
+021C  C9                      RET
+                      
+                      DLY_240MS:                      ; ca. 0,24 s
+021D  C5                      PUSH    BC
+021E  01 E9 00                LD      BC,00E9h
+0221  18 ED                   JR      DLY_BC
+                      
+                      DLY_1600MS:                     ; ca. 1,6 s
+0223  C5                      PUSH    BC
+0224  01 0F 06                LD      BC,060Fh
+0227  18 E7                   JR      DLY_BC
+                      
+                      DLY_BIT:                        ; ca. 0,18 ms – Abtastzeitpunkt für ein Bandbit
+0229  3E 31                   LD      A,31h
+                      DLYBIT1:
+022B  3D                      DEC     A
+022C  C2 2B 02                JP      NZ,DLYBIT1
+022F  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Bildschirmausgabe
+                      ;  Text wird direkt ins Text-VRAM bei D000h kopiert (40 Zeichen/Zeile).
+                      ;  E = Bildschirmposition (Offset ab D000h), C = Länge, HL = Text.
+                      ;  Nach dem LDIR zeigt HL hinter den Text – das nutzt MENU, um mehrere
+                      ;  aufeinanderfolgende Texte ohne neues LD HL auszugeben.
+                      ;------------------------------------------------------------------------------
+                      MSG_LOAD:                       ; "IPL is loading" links oben, Bild löschen
+0230  21 61 02                LD      HL,M_LOAD
+0233  1E 00                   LD      E,00h
+0235  0E 0E                   LD      C,0Eh
+0237  18 0D                   JR      CLSPRINT
+                      
+                      PRINT:                          ; ohne Bildschirmlöschen
+0239  3E 93                   LD      A,93h           ; PIO A: VRAM ein (D000h), 40 Zeichen
+023B  D3 E8                   OUT     (PIO_AD),A
+023D  18 17                   JR      PRT_COPY
+                      
+                      MSG_LDERR:                      ; "Loading error"
+023F  21 99 02                LD      HL,M_LDERR
+0242  1E 0A                   LD      E,0Ah
+0244  0E 0D                   LD      C,0Dh
+                      
+                      CLSPRINT:                       ; Bild löschen, dann ausgeben
+0246  3E 93                   LD      A,93h           ; VRAM bei D000h einblenden
+0248  D3 E8                   OUT     (PIO_AD),A
+024A  D9                      EXX
+024B  21 00 D0                LD      HL,TVRAM        ; Text- und Grafik-VRAM D000h-FFFFh löschen
+024E  36 00           CLS_LP: LD      (HL),00h
+0250  23                      INC     HL
+0251  7C                      LD      A,H
+0252  B5                      OR      L
+0253  20 F9                   JR      NZ,CLS_LP
+0255  D9                      EXX
+                      PRT_COPY:
+0256  AF                      XOR     A
+0257  47                      LD      B,A             ; BC = Länge (C)
+0258  16 D0                   LD      D,0D0h          ; DE = D000h + Position
+025A  ED B0                   LDIR
+025C  3E 13                   LD      A,13h           ; VRAM wieder ausblenden, Tastaturzeile 3
+025E  D3 E8                   OUT     (PIO_AD),A
+0260  C9                      RET
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Meldungstexte (ASCII, ohne Endekennung – Länge steht im Aufruf)
+                      ;------------------------------------------------------------------------------
+0261  49 50 4C 20 ..  M_LOAD:    DEFM "IPL is loading"                ; 0261h, 14
+026F  49 50 4C 20 ..  M_LOOK:    DEFM "IPL is looking for a program"  ; 026Fh, 28
+028B  4D 61 6B 65 ..  M_MKCMT:   DEFM "Make ready CMT"                ; 028Bh, 14
+0299  4C 6F 61 64 ..  M_LDERR:   DEFM "Loading error"                 ; 0299h, 13
+02A6  4D 61 6B 65 ..  M_MKFD:    DEFM "Make ready FD"                 ; 02A6h, 13
+02B3  50 72 65 73 ..  M_PRESS:   DEFM "Press F or C"                  ; 02B3h, 12  \
+02BF  46 3A 46 6C ..  M_FLOPPY:  DEFM "F:Floppy diskette"             ; 02BFh, 17   > Menü, am Stück
+02D0  43 3A 43 61 ..  M_CASS:    DEFM "C:Cassette tape"               ; 02D0h, 15  /
+02DF  44 72 69 76 ..  M_DRIVE:   DEFM "Drive No? (1-4)"               ; 02DFh, 15
+02EE  54 68 69 73 ..  M_NOMAST:  DEFM "This diskette is not master"   ; 02EEh, 27
+0309  50 72 65 73 ..  M_PRESSS:  DEFM "Pressing S key starts the CMT" ; 0309h, 29
+0326  46 69 6C 65 ..  M_MODEERR: DEFM "File mode error"               ; 0326h, 15
+0335  01              IPLID:     DEFB 01h                             ; 0335h  Bootsektor-Kennung:
+0336  49 50 4C 50 ..             DEFM "IPLPRO"                        ;        01h,"IPLPRO" (6 Byte geprüft)
+                      
+                      ;==============================================================================
+                      ;  BOOT_FD – Laden von Diskette (Laufwerk in V_DRIVE)
+                      ;  Disk-Format: 16 Sektoren à 256 Byte pro Spur, beidseitig.
+                      ;  Logischer Sektor 0 (Spur 0, Seite 0, Sektor 1) ist der Bootsektor:
+                      ;     +00h  01h,"IPLPRO"   Kennung
+                      ;     +07h  Name (10 Zeichen werden angezeigt)
+                      ;     +14h  Länge des Programms in Bytes
+                      ;     +1Eh  logischer Startsektor des Programms
+                      ;==============================================================================
+                      BOOT_FD:
+033C  DD 21 00 CF             LD      IX,HDRBUF       ; Ziel: Bootsektor nach CF00h
+0340  AF                      XOR     A
+0341  32 1E CF                LD      (D_START),A     ; Startsektor 0
+0344  32 1F CF                LD      (D_START+1),A
+0347  FD 21 E0 FF             LD      IY,V_CHK        ; IY -> Parameterblock FFE0h
+034B  21 00 01                LD      HL,0100h        ; 256 Bytes = 1 Sektor
+034E  FD 75 02                LD      (IY+2),L
+0351  FD 74 03                LD      (IY+3),H
+0354  CD 7A 04                CALL    FD_READ
+0357  21 00 CF                LD      HL,HDRBUF       ; Kennung prüfen
+035A  11 35 03                LD      DE,IPLID
+035D  06 06                   LD      B,06h
+                      FD_CMPID:
+035F  4E                      LD      C,(HL)
+0360  1A                      LD      A,(DE)
+0361  B9                      CP      C
+0362  C2 4A 05                JP      NZ,FD_NOMAST    ; keine Systemdiskette
+0365  23                      INC     HL
+0366  13                      INC     DE
+0367  10 F6                   DJNZ    FD_CMPID
+0369  CD 30 02                CALL    MSG_LOAD        ; "IPL is loading" + Name
+036C  21 07 CF                LD      HL,D_NAME
+036F  1E 10                   LD      E,10h
+0371  0E 0A                   LD      C,0Ah
+0373  CD 39 02                CALL    PRINT
+0376  DD 21 00 80             LD      IX,LOADADR      ; Ziel 8000h
+037A  2A 14 CF                LD      HL,(D_SIZE)     ; Länge aus dem Bootsektor
+037D  FD 75 02                LD      (IY+2),L
+0380  FD 74 03                LD      (IY+3),H        ; (Startsektor steht schon in CF1Eh)
+0383  CD 7A 04                CALL    FD_READ
+0386  CD F3 03                CALL    FD_OFF          ; Motor aus
+0389  C3 02 00                JP      START_RAM       ; Programm starten
+                      
+                      FD_NREADY:                      ; Laufwerk wird nicht bereit
+038C  21 A6 02                LD      HL,M_MKFD       ; "Make ready FD"
+038F  1E 0A                   LD      E,0Ah
+0391  0E 0D                   LD      C,0Dh
+0393  CD 46 02                CALL    CLSPRINT
+0396  C3 59 05                JP      FD_ABORT
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  FD_SELECT – Motor einschalten (falls nötig), Laufwerk wählen, auf READY
+                      ;  warten; beim ersten Zugriff auf ein Laufwerk Restore (Spur 0) ausführen.
+                      ;------------------------------------------------------------------------------
+                      FD_SELECT:
+0399  3A E6 FF                LD      A,(V_MOTOR)
+039C  0F                      RRCA
+039D  D4 CC 03                CALL    NC,FD_MOTON     ; Motor noch aus -> einschalten
+03A0  3A EC FF                LD      A,(V_DRIVE)
+03A3  F6 84                   OR      84h             ; Motor an + Laufwerkswahl aktiv + Nummer
+03A5  D3 DC                   OUT     (FDD_SEL),A
+03A7  AF                      XOR     A
+03A8  CD E4 05                CALL    DLY_44MS
+03AB  21 00 00                LD      HL,0000h        ; Timeout ca. 0,85 s
+                      SEL_WAIT:
+03AE  2B                      DEC     HL
+03AF  7C                      LD      A,H
+03B0  B5                      OR      L
+03B1  28 D9                   JR      Z,FD_NREADY
+03B3  DB D8                   IN      A,(FDC_CMD)     ; Status
+03B5  2F                      CPL                     ; MB8876: invertiert
+03B6  07                      RLCA                    ; Bit7 NOT READY -> Carry
+03B7  38 F5                   JR      C,SEL_WAIT
+03B9  3A EC FF                LD      A,(V_DRIVE)     ; Restore schon gemacht?
+03BC  4F                      LD      C,A
+03BD  21 E7 FF                LD      HL,V_RECAL
+03C0  06 00                   LD      B,00h
+03C2  09                      ADD     HL,BC
+03C3  CB 46                   BIT     0,(HL)
+03C5  C0                      RET     NZ
+03C6  CD 09 04                CALL    FD_RESTORE      ; nein: Kopf auf Spur 0
+03C9  CB C6                   SET     0,(HL)
+03CB  C9                      RET
+                      
+                      FD_MOTON:                       ; Motor an, ca. 1 s Hochlaufzeit
+03CC  3E 80                   LD      A,80h
+03CE  D3 DC                   OUT     (FDD_SEL),A
+03D0  06 0A                   LD      B,0Ah
+03D2  21 19 3C        MOT_1:  LD      HL,3C19h
+03D5  2B              MOT_2:  DEC     HL
+03D6  7D                      LD      A,L
+03D7  B4                      OR      H
+03D8  20 FB                   JR      NZ,MOT_2
+03DA  10 F6                   DJNZ    MOT_1
+03DC  3E 01                   LD      A,01h
+03DE  32 E6 FF                LD      (V_MOTOR),A
+03E1  C9                      RET
+                      
+                      ;  FD_SEEK – Seek auf die Spur im Datenregister.  Rückgabe NZ = Fehler
+                      FD_SEEK:
+03E2  3E 1B                   LD      A,1Bh           ; SEEK, Kopf laden, Steprate 3
+03E4  2F                      CPL
+03E5  D3 D8                   OUT     (FDC_CMD),A
+03E7  CD 21 04                CALL    FD_WAIT
+03EA  CD E4 05                CALL    DLY_44MS        ; Kopf-Beruhigungszeit
+03ED  DB D8                   IN      A,(FDC_CMD)
+03EF  2F                      CPL
+03F0  E6 99                   AND     99h             ; NOT READY | SEEK ERROR | CRC ERROR | BUSY
+03F2  C9                      RET
+                      
+                      ;  FD_OFF – Motor aus, Laufwerkszustände vergessen
+03F3  CD DD 05        FD_OFF: CALL    DLY_850US
+03F6  AF                      XOR     A
+03F7  D3 DC                   OUT     (FDD_SEL),A
+03F9  32 E7 FF                LD      (V_RECAL),A
+03FC  32 E8 FF                LD      (V_RECAL+1),A
+03FF  32 E9 FF                LD      (V_RECAL+2),A
+0402  32 EA FF                LD      (V_RECAL+3),A
+0405  32 E6 FF                LD      (V_MOTOR),A
+0408  C9                      RET
+                      
+                      ;  FD_RESTORE – Kopf auf Spur 0; Fehler -> "Loading error"
+                      FD_RESTORE:
+0409  E5                      PUSH    HL
+040A  3E 0B                   LD      A,0Bh           ; RESTORE, Kopf laden, Steprate 3
+040C  2F                      CPL
+040D  D3 D8                   OUT     (FDC_CMD),A
+040F  CD 21 04                CALL    FD_WAIT
+0412  CD E4 05                CALL    DLY_44MS
+0415  DB D8                   IN      A,(FDC_CMD)
+0417  2F                      CPL
+0418  E6 85                   AND     85h             ; NOT READY | TRACK 00 | BUSY
+041A  EE 04                   XOR     04h             ; erwartet: nur TRACK 00 gesetzt
+041C  E1                      POP     HL
+041D  C8                      RET     Z
+041E  C3 56 05                JP      FD_ERROR
+                      
+                      ;  FD_WAIT – warten, bis BUSY = 0 (Timeout ca. 6 s -> FD_ERROR)
+                      FD_WAIT:
+0421  D5                      PUSH    DE
+0422  E5                      PUSH    HL
+0423  CD D6 05                CALL    DLY_85US        ; FDC braucht etwas, bis BUSY gültig ist
+0426  1E 07                   LD      E,07h
+0428  21 00 00        FW_1:   LD      HL,0000h
+042B  2B              FW_2:   DEC     HL
+042C  7C                      LD      A,H
+042D  B5                      OR      L
+042E  28 09                   JR      Z,FW_3
+0430  DB D8                   IN      A,(FDC_CMD)
+0432  2F                      CPL
+0433  0F                      RRCA                    ; Bit0 BUSY -> Carry
+0434  38 F5                   JR      C,FW_2
+0436  E1                      POP     HL
+0437  D1                      POP     DE
+0438  C9                      RET
+0439  1D              FW_3:   DEC     E
+043A  20 EC                   JR      NZ,FW_1
+043C  C3 56 05                JP      FD_ERROR
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  FD_CALC – logischen Startsektor (CF1Eh) in Spur/Sektor umrechnen
+                      ;  und die Parameter prüfen.
+                      ;     IY+4 = Sektor DIV 16  (logische Spur = Zylinder*2 + Seite)
+                      ;     IY+5 = Sektor MOD 16 + 1
+                      ;  Gültig: Laufwerk < 4, Spur < 70, Sektor 1-16, Länge <> 0
+                      ;------------------------------------------------------------------------------
+                      FD_CALC:
+043F  06 00                   LD      B,00h
+0441  11 10 00                LD      DE,0010h
+0444  2A 1E CF                LD      HL,(D_START)
+0447  AF                      XOR     A               ; Carry löschen
+0448  ED 52           CALC_1: SBC     HL,DE           ; Division durch wiederholte Subtraktion
+044A  38 03                   JR      C,CALC_2
+044C  04                      INC     B
+044D  18 F9                   JR      CALC_1
+044F  19              CALC_2: ADD     HL,DE           ; Rest wiederherstellen
+0450  60                      LD      H,B
+0451  2C                      INC     L               ; Sektoren zählen ab 1
+0452  FD 74 04                LD      (IY+4),H
+0455  FD 75 05                LD      (IY+5),L
+0458  3A EC FF                LD      A,(V_DRIVE)
+045B  FE 04                   CP      04h
+045D  30 18                   JR      NC,CALC_ERR
+045F  FD 7E 04                LD      A,(IY+4)
+0462  FE 46                   CP      46h             ; Spur >= 70?
+0464  30 11                   JR      NC,CALC_ERR
+0466  FD 7E 05                LD      A,(IY+5)
+0469  B7                      OR      A
+046A  28 0B                   JR      Z,CALC_ERR
+046C  FE 11                   CP      11h             ; Sektor > 16?
+046E  30 07                   JR      NC,CALC_ERR
+0470  FD 7E 02                LD      A,(IY+2)
+0473  FD B6 03                OR      (IY+3)
+0476  C0                      RET     NZ              ; Länge <> 0 -> OK
+                      CALC_ERR:
+0477  C3 56 05                JP      FD_ERROR
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  FD_READ – (IY+2/3) Bytes ab logischem Sektor (CF1Eh) nach (IX) lesen.
+                      ;  Liest pro Spur mit "Read Sector, multiple" ab dem Startsektor bis zum
+                      ;  Spurende (Sektor 16) bzw. bis die Anzahl erreicht ist, dann nächste Spur.
+                      ;  Bis zu 10 Versuche, danach "Loading error".
+                      ;------------------------------------------------------------------------------
+                      FD_READ:
+047A  F3                      DI
+047B  CD 3F 04                CALL    FD_CALC
+047E  3E 0A                   LD      A,0Ah
+0480  32 EB FF                LD      (V_RETRY),A     ; 10 Versuche
+                      FD_RETRY:
+0483  CD 99 03                CALL    FD_SELECT
+0486  FD 56 03                LD      D,(IY+3)        ; D = Anzahl Sektoren = Länge/256, aufgerundet
+0489  FD 7E 02                LD      A,(IY+2)
+048C  B7                      OR      A
+048D  28 01                   JR      Z,FR_1
+048F  14                      INC     D
+0490  FD 7E 05        FR_1:   LD      A,(IY+5)        ; Arbeitskopie Sektor
+0493  FD 77 01                LD      (IY+1),A
+0496  FD 7E 04                LD      A,(IY+4)        ; Arbeitskopie Spur
+0499  FD 77 00                LD      (IY+0),A
+049C  DD E5                   PUSH    IX
+049E  E1                      POP     HL              ; HL = Zieladresse
+                      FR_TRACK:                       ; --- eine Spur lesen, A = logische Spur ---
+049F  CB 3F                   SRL     A               ; A = Zylinder, Carry = Seite
+04A1  2F                      CPL
+04A2  D3 DB                   OUT     (FDC_DAT),A     ; Zielspur ins Datenregister (für SEEK)
+04A4  30 04                   JR      NC,FR_SIDE0
+04A6  3E 01                   LD      A,01h
+04A8  18 02                   JR      FR_SIDE
+                      FR_SIDE0:
+04AA  3E 00                   LD      A,00h
+                      FR_SIDE:
+04AC  2F                      CPL
+04AD  D3 DD                   OUT     (FDD_SID),A     ; Seite wählen
+04AF  CD E2 03                CALL    FD_SEEK
+04B2  20 6A                   JR      NZ,FR_FAIL
+04B4  0E DB                   LD      C,FDC_DAT       ; für INI
+04B6  FD 7E 00                LD      A,(IY+0)
+04B9  CB 3F                   SRL     A
+04BB  2F                      CPL
+04BC  D3 D9                   OUT     (FDC_TRK),A     ; Spurregister = Zylinder
+04BE  FD 7E 01                LD      A,(IY+1)
+04C1  2F                      CPL
+04C2  D3 DA                   OUT     (FDC_SEC),A     ; Startsektor
+04C4  D9                      EXX
+04C5  21 F7 04                LD      HL,FR_END       ; "Rücksprungadresse" für das Ende der
+04C8  E5                      PUSH    HL              ;   Übertragung (BUSY fällt ab) auf den Stack
+04C9  D9                      EXX
+04CA  3E 94                   LD      A,94h           ; READ SECTOR, multiple, 15 ms Kopfladeverzögerung
+04CC  2F                      CPL
+04CD  D3 D8                   OUT     (FDC_CMD),A
+04CF  CD 2D 05                CALL    FD_WAITBSY      ; warten, bis FDC BUSY meldet
+                      FR_SECT:
+04D2  06 00                   LD      B,00h           ; 256 Bytes pro Sektor
+                      FR_BYTE:
+04D4  DB D8                   IN      A,(FDC_CMD)     ; Status (Achtung: hier NICHT invertiert gelesen,
+04D6  0F                      RRCA                    ;   daher Bit = 0 bedeutet "aktiv")
+04D7  D8                      RET     C               ; BUSY weg -> Kommando beendet -> FR_END
+04D8  0F                      RRCA
+04D9  38 F9                   JR      C,FR_BYTE       ; kein DRQ -> weiter warten
+04DB  ED A2                   INI                     ; Byte holen: (HL) <- (C), HL++, B--
+04DD  20 F5                   JR      NZ,FR_BYTE
+04DF  FD 34 01                INC     (IY+1)          ; nächster Sektor
+04E2  FD 7E 01                LD      A,(IY+1)
+04E5  FE 11                   CP      11h             ; über Sektor 16 hinaus?
+04E7  28 05                   JR      Z,FR_EOT
+04E9  15                      DEC     D               ; Restsektoren
+04EA  20 E6                   JR      NZ,FR_SECT      ; FDC liest im Multi-Modus weiter
+04EC  18 01                   JR      FR_STOP
+04EE  15              FR_EOT: DEC     D
+                      FR_STOP:
+04EF  3E D8                   LD      A,0D8h          ; FORCE INTERRUPT (sofort)
+04F1  2F                      CPL
+04F2  D3 D8                   OUT     (FDC_CMD),A
+04F4  CD 21 04                CALL    FD_WAIT
+04F7  DB D8           FR_END: IN      A,(FDC_CMD)
+04F9  2F                      CPL
+04FA  E6 FF                   AND     0FFh            ; irgendein Statusbit gesetzt -> Fehler
+04FC  20 20                   JR      NZ,FR_FAIL
+04FE  D9                      EXX
+04FF  E1                      POP     HL              ; nicht benutzte Adresse FR_END vom Stack
+0500  D9                      EXX
+0501  FD 7E 01                LD      A,(IY+1)
+0504  FE 11                   CP      11h             ; Spurende?
+0506  20 08                   JR      NZ,FR_NEXT
+0508  3E 01                   LD      A,01h           ; ja: Sektor 1 der nächsten logischen Spur
+050A  FD 77 01                LD      (IY+1),A
+050D  FD 34 00                INC     (IY+0)
+                      FR_NEXT:
+0510  7A                      LD      A,D
+0511  B7                      OR      A
+0512  20 05                   JR      NZ,FR_MORE
+0514  3E 80                   LD      A,80h           ; fertig: Laufwerk abwählen, Motor läuft weiter
+0516  D3 DC                   OUT     (FDD_SEL),A
+0518  C9                      RET
+                      FR_MORE:
+0519  FD 7E 00                LD      A,(IY+0)
+051C  18 81                   JR      FR_TRACK
+                      
+                      FR_FAIL:                        ; Lesefehler -> Restore und neuer Versuch
+051E  3A EB FF                LD      A,(V_RETRY)
+0521  3D                      DEC     A
+0522  32 EB FF                LD      (V_RETRY),A
+0525  28 2F                   JR      Z,FD_ERROR
+0527  CD 09 04                CALL    FD_RESTORE
+052A  C3 83 04                JP      FD_RETRY        ; (Hinweis: Ein noch gestapeltes FR_END bleibt
+                                                      ;  liegen – harmlos, SP wird später neu gesetzt)
+                      
+                      ;  FD_WAITBSY – warten, bis BUSY = 1 (Timeout ca. 7 s -> FD_ERROR)
+                      FD_WAITBSY:
+052D  D5                      PUSH    DE
+052E  E5                      PUSH    HL
+052F  CD D6 05                CALL    DLY_85US
+0532  1E 08                   LD      E,08h
+0534  21 00 00        WB_1:   LD      HL,0000h
+0537  2B              WB_2:   DEC     HL
+0538  7C                      LD      A,H
+0539  B5                      OR      L
+053A  28 09                   JR      Z,WB_3
+053C  DB D8                   IN      A,(FDC_CMD)
+053E  2F                      CPL
+053F  0F                      RRCA
+0540  30 F5                   JR      NC,WB_2
+0542  E1                      POP     HL
+0543  D1                      POP     DE
+0544  C9                      RET
+0545  1D              WB_3:   DEC     E
+0546  20 EC                   JR      NZ,WB_1
+0548  18 0C                   JR      FD_ERROR
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Fehlerbehandlung Floppy und Auswahlmenü
+                      ;------------------------------------------------------------------------------
+                      FD_NOMAST:                      ; Bootsektor ohne Kennung
+054A  21 EE 02                LD      HL,M_NOMAST     ; "This diskette is not master"
+054D  1E 07                   LD      E,07h
+054F  0E 1B                   LD      C,1Bh
+0551  CD 46 02                CALL    CLSPRINT
+0554  18 03                   JR      FD_ABORT
+                      
+                      FD_ERROR:
+0556  CD 3F 02                CALL    MSG_LDERR       ; "Loading error"
+                      FD_ABORT:
+0559  CD F3 03                CALL    FD_OFF
+055C  31 E0 FF                LD      SP,0FFE0h       ; Stack zurücksetzen (Abbruch aus beliebiger Tiefe)
+                      
+                      ;  MENU – Benutzer wählt das Boot-Medium
+055F  CD 5F 00        MENU:   CALL    FDCTEST
+0562  20 47                   JR      NZ,MENU_NOFD    ; kein FDC: nur Kassette anbieten
+0564  21 B3 02                LD      HL,M_PRESS      ; "Press F or C"         Zeile 2, Spalte 10
+0567  1E 5A                   LD      E,5Ah
+0569  0E 0C                   LD      C,0Ch
+056B  CD 39 02                CALL    PRINT
+056E  1E AB                   LD      E,0ABh          ; "F:Floppy diskette"    Zeile 4, Spalte 11
+0570  0E 11                   LD      C,11h           ;  (HL zeigt nach LDIR schon auf den Text)
+0572  CD 39 02                CALL    PRINT
+0575  1E D3                   LD      E,0D3h          ; "C:Cassette tape"      Zeile 5, Spalte 11
+0577  0E 0F                   LD      C,0Fh
+0579  CD 39 02                CALL    PRINT
+                      MENU_KEY:
+057C  CD 4B 00                CALL    KEYROW4
+057F  CB 5F                   BIT     3,A             ; C?
+0581  CA 6B 00                JP      Z,BOOT_CMT
+0584  CB 77                   BIT     6,A             ; F?
+0586  28 02                   JR      Z,MENU_FD
+0588  18 F2                   JR      MENU_KEY
+                      
+                      MENU_FD:
+058A  21 DF 02                LD      HL,M_DRIVE      ; "Drive No? (1-4)"
+058D  1E 0A                   LD      E,0Ah
+058F  0E 0F                   LD      C,0Fh
+0591  CD 46 02                CALL    CLSPRINT
+                      DRV_KEY:
+0594  16 12                   LD      D,12h           ; Zeile 2: Zehnerblock 0-7
+0596  CD C1 05                CALL    GETDRV
+0599  30 09                   JR      NC,DRV_OK
+059B  16 18                   LD      D,18h           ; Zeile 8: Ziffernreihe 0-7
+059D  CD C1 05                CALL    GETDRV
+05A0  30 02                   JR      NC,DRV_OK
+05A2  18 F0                   JR      DRV_KEY
+05A4  78              DRV_OK: LD      A,B
+05A5  32 EC FF                LD      (V_DRIVE),A
+05A8  C3 3C 03                JP      BOOT_FD
+                      
+                      MENU_NOFD:
+05AB  21 09 03                LD      HL,M_PRESSS     ; "Pressing S key starts the CMT", Zeile 2, Sp. 4
+05AE  1E 54                   LD      E,54h
+05B0  0E 1D                   LD      C,1Dh
+05B2  CD 39 02                CALL    PRINT
+05B5  06 06                   LD      B,06h           ; Zeile 6 (S = Bit3) – ohne Strobe-Bit4!
+05B7  CD 4D 00        S_KEY:  CALL    KEYROW          ;  laut MAME wird dann das UND aller Zeilen
+05BA  CB 5F                   BIT     3,A             ;  gelesen, d.h. auch C, K, S, 3, F4 ... wirken
+05BC  CA 6B 00                JP      Z,BOOT_CMT
+05BF  18 F6                   JR      S_KEY
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  GETDRV – Tasten 1-4 der Zeile D abfragen
+                      ;  Rückgabe: NC und B = 0-3 bei gedrückter Taste, sonst Carry
+                      ;------------------------------------------------------------------------------
+05C1  DB E8           GETDRV: IN      A,(PIO_AD)
+05C3  E6 F0                   AND     0F0h
+05C5  B2                      OR      D
+05C6  D3 E8                   OUT     (PIO_AD),A
+05C8  DB EA                   IN      A,(PIO_BD)
+05CA  06 00                   LD      B,00h
+05CC  0E 04                   LD      C,04h
+05CE  0F                      RRCA                    ; Bit0 (Taste 0) verwerfen
+05CF  0F              GD_1:   RRCA                    ; nächstes Bit -> Carry
+05D0  D0                      RET     NC              ; 0 = gedrückt
+05D1  04                      INC     B
+05D2  0D                      DEC     C
+05D3  20 FA                   JR      NZ,GD_1
+05D5  C9                      RET                     ; keine der Tasten 1-4: Carry
+                      
+                      ;------------------------------------------------------------------------------
+                      ;  Kurze Warteschleifen (DE x 26 T)
+                      ;------------------------------------------------------------------------------
+                      DLY_85US:
+05D6  D5                      PUSH    DE
+05D7  11 0D 00                LD      DE,000Dh
+05DA  C3 E8 05                JP      DLY_DE
+                      DLY_850US:
+05DD  D5                      PUSH    DE
+05DE  11 82 00                LD      DE,0082h
+05E1  C3 E8 05                JP      DLY_DE
+                      DLY_44MS:
+05E4  D5                      PUSH    DE
+05E5  11 2C 1A                LD      DE,1A2Ch
+05E8  1B              DLY_DE: DEC     DE
+05E9  7B                      LD      A,E
+05EA  B2                      OR      D
+05EB  20 FB                   JR      NZ,DLY_DE
+05ED  D1                      POP     DE
+05EE  C9                      RET
+                      
+                      ;==============================================================================
+                      ;  BOOT_EXT – Laden von externer Speicherkarte an Port F8h/F9h
+                      ;  Adresse wird über OUT F8h (High) / OUT F9h (Low) gesetzt, das Datenbyte
+                      ;  über IN F9h gelesen.  Ist das erste Byte (Adresse 8000h) nicht 00h, gilt
+                      ;  die Karte als nicht vorhanden bzw. nicht bootfähig -> Floppy/Kassette.
+                      ;  Sonst werden 32 KByte (Adresse 8000h-FFFFh) 1:1 nach 8000h-FFFFh kopiert.
+                      ;==============================================================================
+                      BOOT_EXT:
+05EF  21 00 80                LD      HL,8000h
+05F2  DD 21 F8 05             LD      IX,EXT_CHK
+05F6  18 1A                   JR      EXT_ADR
+                      
+                      EXT_CHK:
+05F8  DB F9                   IN      A,(EXT_AL)      ; erstes Byte
+05FA  FE 00                   CP      00h
+05FC  C2 57 00                JP      NZ,BOOT_AUTO    ; keine gültige Karte
+05FF  DD 21 05 06             LD      IX,EXT_COPY
+                      EXT_NEXT:
+0603  18 0D                   JR      EXT_ADR
+                      EXT_COPY:
+0605  DB F9                   IN      A,(EXT_AL)      ; Byte von der Karte
+0607  77                      LD      (HL),A          ; ins RAM
+0608  23                      INC     HL
+0609  7D                      LD      A,L
+060A  B4                      OR      H
+060B  20 F6                   JR      NZ,EXT_NEXT     ; bis HL = 0000h
+060D  D3 F8                   OUT     (EXT_AH),A      ; A = 0
+060F  C3 02 00                JP      START_RAM
+                      
+                      ;  EXT_ADR – Adresse HL ausgeben, kurz warten, weiter bei (IX)
+                      EXT_ADR:
+0612  7C                      LD      A,H
+0613  D3 F8                   OUT     (EXT_AH),A
+0615  7D                      LD      A,L
+0616  D3 F9                   OUT     (EXT_AL),A
+0618  16 04                   LD      D,04h
+                      EXT_DLY:
+061A  15                      DEC     D
+061B  20 FD                   JR      NZ,EXT_DLY
+061D  DD E9                   JP      (IX)
+                      
+061F  00                      NOP                     ; 061Fh
+                      
+0620  FF x 480                DEFS    0800h-$,0FFh    ; Rest des 2-KByte-ROMs unbenutzt
+                      
+                              END
+                      

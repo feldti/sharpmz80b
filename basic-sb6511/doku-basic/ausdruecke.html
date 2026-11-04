@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ausdrücke und Variablen – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li class="cur"><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#rangfolge-und-auswertungsroutinen">Rangfolge und Auswertungsroutinen</a></li><li><a href="#func_tab-operatoren-und-funktionen">FUNC_TAB – Operatoren und Funktionen</a></li><li><a href="#variablen">Variablen</a></li><li><a href="#strings">Strings</a></li></ul></aside>
+<h1 id="ausdrucke-und-variablen">Ausdrücke und Variablen</h1>
+<h2 id="rangfolge-und-auswertungsroutinen">Rangfolge und Auswertungsroutinen</h2>
+<p>Die Ausdrucksauswertung ist ein rekursiver Abstieg. Jede Stufe ruft die nächsthöhere für ihre
+Operanden auf:</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Routine</th>
+<th>Adresse</th>
+<th>Operatoren</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 (niedrigste)</td>
+<td><code>EVAL_EXPR</code></td>
+<td>254Bh</td>
+<td>Vergleiche <code>=</code> <code>&lt;&gt;</code> <code>&gt;&lt;</code> <code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>=&lt;</code> <code>&gt;=</code> <code>=&gt;</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>EVAL</code></td>
+<td>25EBh</td>
+<td><code>+</code> <code>-</code> (bei Strings <code>+</code> = Verkettung)</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>TERM</code></td>
+<td>264Bh</td>
+<td><code>*</code> <code>/</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>POWER</code></td>
+<td>2664h</td>
+<td><code>^</code></td>
+</tr>
+<tr>
+<td>5 (höchste)</td>
+<td><code>PRIMARY</code></td>
+<td>26BAh</td>
+<td>Vorzeichen, Zahl, Variable, <code>FN</code>, <code>( … )</code>, String, Funktion, π</td>
+</tr>
+</tbody>
+</table>
+<p>Es gibt <strong>keine logischen Operatoren</strong> (<code>AND</code>, <code>OR</code>, <code>NOT</code> fehlen in den Tabellen). Bedingungen
+lassen sich nur mit Vergleichen und Arithmetik verknüpfen, etwa <code>(A&gt;1)*(B&lt;5)</code> für „und“.</p>
+<p>Ein Vergleich liefert <strong>−1 für wahr und 0 für falsch</strong> (<code>CMP_TRUE</code>/<code>CMP_FALSE</code>). <code>IF</code> prüft nur,
+ob das Ergebnis ungleich 0 ist.</p>
+<p>Bemerkenswert: <code>EVAL</code> – die Stufe ohne Vergleiche – ist der Einsprung für fast alle Befehle,
+die eine Zahl erwarten. Nur wo ausdrücklich ein Vergleich erlaubt sein soll – <code>LET</code>, <code>IF</code>, <code>PRINT</code>, Klammern in
+<code>PRIMARY</code>, <code>IMAGE/P</code>, <code>WRT</code>, <code>CMD</code> und <code>RSO</code> – wird <code>EVAL_EXPR</code> benutzt. <code>PRINT A=1</code> gibt also
+−1 oder 0 aus, während z. B. <code>POKE</code> oder <code>ON</code> keinen Vergleich ohne Klammern annehmen.</p>
+<h3 id="ergebnis-einer-auswertung">Ergebnis einer Auswertung</h3>
+<table>
+<thead>
+<tr>
+<th>Register</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D = 0</td>
+<td>Zahl; der Wert steht als 5-Byte-Gleitkommazahl bei <code>(VALSP)</code></td>
+</tr>
+<tr>
+<td>D ≠ 0</td>
+<td>String; E = Nummer des Eintrags in den String-Zwischenwerten (<code>GETSTR</code> liefert Adresse und Länge)</td>
+</tr>
+<tr>
+<td>A</td>
+<td>das nächste Zeichen hinter dem Ausdruck</td>
+</tr>
+<tr>
+<td>HL</td>
+<td>Textzeiger hinter dem Ausdruck</td>
+</tr>
+</tbody>
+</table>
+<h3 id="der-wertestack">Der Wertestack</h3>
+<p>Zwischenergebnisse liegen auf einem eigenen Stapel am Ende der dynamischen Bereiche
+(<code>VALSP</code>, 7094h), 5 Bytes je Eintrag. <code>APPLY_OP</code> legt den linken Operanden ab, erhöht <code>VALSP</code>
+um 5, wertet den rechten Operanden über die übergebene Routine aus und ruft dann den Operator
+über <code>FUNC_TAB</code> auf. Gemischte Typen (Zahl und String) ergeben Fehler 4.</p>
+<p><code>DISPATCH</code> setzt den Wertestack vor jeder Anweisung zurück. Ein Ausdruck verbraucht deshalb
+nie dauerhaft Speicher.</p>
+<h3 id="typprufung">Typprüfung</h3>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>prüft</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>REQ_STR</code></td>
+<td>String verlangt; Zahl: Fehler 4</td>
+</tr>
+<tr>
+<td><code>CHKSTRTYPE</code></td>
+<td>Zahl verlangt; String: Fehler 4</td>
+</tr>
+<tr>
+<td><code>EVAL_INT</code></td>
+<td>Zahl 0–65535 (Nachkommastellen abgeschnitten), sonst Fehler 3</td>
+</tr>
+<tr>
+<td><code>EVAL_BYTE</code></td>
+<td>Zahl 0–255, sonst Fehler 3</td>
+</tr>
+<tr>
+<td><code>EVAL_ADDR</code></td>
+<td><code>$</code> mit bis zu 4 Hexziffern oder ein Ausdruck (wie <code>EVAL_INT</code>)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="func_tab-operatoren-und-funktionen">FUNC_TAB – Operatoren und Funktionen</h2>
+<p><code>FUNC_TAB</code> (2949h) hat 49 Einträge:</p>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–8</td>
+<td>Vergleiche, Token 83h–8Bh (89h steht für <code>=</code>)</td>
+</tr>
+<tr>
+<td>9–11</td>
+<td>unbenutzt (<code>ERR_01</code>)</td>
+</tr>
+<tr>
+<td>12–16</td>
+<td><code>+ - * / ^</code> (kein Token, Index wird im Code gesetzt)</td>
+</tr>
+<tr>
+<td>17–36</td>
+<td>Funktionen A0h–B3h: <code>LEFT$( RIGHT$( MID$( LEN( CHR$( STR$( ASC( VAL( PEEK( TAB( SPACE$( SIZE ERL ERN EOF( STRING$( POINT( CHARACTER$( CSR POS</code></td>
+</tr>
+<tr>
+<td>37–48</td>
+<td>mathematische Funktionen C0h–CBh: <code>RND( SIN( COS( TAN( ATN( EXP( INT( LOG( LN( ABS( SGN( SQR(</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>PRIMARY</code> unterscheidet die beiden Funktionsgruppen: Bei <strong>A0h–B3h</strong> liest die Funktion ihre
+Argumente selbst (sie hat oft mehrere oder Strings). Bei <strong>C0h–CBh</strong> wird das eine Argument
+vorher ausgewertet; die Routine bekommt in DE einen Zeiger auf den Wert und schreibt das
+Ergebnis dorthin.</p>
+<h3 id="funktionen-im-uberblick">Funktionen im Überblick</h3>
+<table>
+<thead>
+<tr>
+<th>Funktion</th>
+<th>Ergebnis / Besonderheit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LEFT$(s,n)</code>, <code>RIGHT$(s,n)</code></td>
+<td>Anfang bzw. Ende des Strings (<code>STR_CUT</code> schneidet auf dem Wertestack zu)</td>
+</tr>
+<tr>
+<td><code>MID$(s,p,n)</code></td>
+<td>Teilstring ab p; statt n darf <code>-</code> stehen: Rest ab p. p = 0: Fehler 3</td>
+</tr>
+<tr>
+<td><code>LEN(s)</code>, <code>ASC(s)</code></td>
+<td>Länge, Code des ersten Zeichens (<code>ASC("")</code>: Fehler 3)</td>
+</tr>
+<tr>
+<td><code>CHR$(n)</code>, <code>STR$(x)</code>, <code>VAL(s)</code></td>
+<td><code>VAL</code> eines leeren oder nicht numerischen Strings ergibt 0</td>
+</tr>
+<tr>
+<td><code>PEEK(adr)</code></td>
+<td>Byte aus dem Speicher; Adresse auch <code>$hex</code></td>
+</tr>
+<tr>
+<td><code>SPACE$(n)</code>, <code>STRING$(s$,n)</code></td>
+<td>n Leerzeichen bzw. n-mal das erste Zeichen von s$ (<code>STR_FILL</code>; leerer String: Fehler 3)</td>
+</tr>
+<tr>
+<td><code>TAB(n)</code></td>
+<td>nur in PRINT; als Funktion Fehler 1</td>
+</tr>
+<tr>
+<td><code>SIZE</code></td>
+<td>freier Speicher in Bytes</td>
+</tr>
+<tr>
+<td><code>ERL</code>, <code>ERN</code></td>
+<td>Zeile und Nummer des letzten Fehlers</td>
+</tr>
+<tr>
+<td><code>POINT(x,y)</code></td>
+<td>Pixelzustand 0–3 (x 0–319, y 0–199)</td>
+</tr>
+<tr>
+<td><code>CHARACTER$(x,y)</code></td>
+<td>Zeichen an einer Textbildschirmposition</td>
+</tr>
+<tr>
+<td><code>CSRV</code>, <code>CSRH</code> / <code>POSV</code>, <code>POSH</code></td>
+<td>Cursorzeile bzw. -spalte des Textbildschirms / Grafikposition y bzw. x (Token <code>CSR</code> bzw. <code>POS</code>, gefolgt von <code>V</code> oder <code>H</code>)</td>
+</tr>
+<tr>
+<td><code>RND(x)</code></td>
+<td>x &gt; 0: nächste Zufallszahl; x ≤ 0: Startwert zurücksetzen</td>
+</tr>
+<tr>
+<td><code>SIN COS TAN ATN EXP LN LOG SQR INT ABS SGN</code></td>
+<td>siehe <a href="gleitkomma.html">Gleitkomma</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="variablen">Variablen</h2>
+<h3 id="namen">Namen</h3>
+<p><code>GETNAME</code> liest einen Buchstaben und optional einen zweiten Buchstaben oder eine Ziffer. Weitere
+Buchstaben und Ziffern werden überlesen – <strong>nur zwei Zeichen zählen</strong> (<code>COUNT</code> und <code>CO</code> sind
+dieselbe Variable). Ein angehängtes <code>$</code> macht den Namen zu einer Stringvariablen, <code>(</code> zu einem
+Feld. Der Name wird als zwei Bytes gespeichert (zweites Byte 20h bei einbuchstabigen Namen).</p>
+<p>Zahl- und Stringvariablen, Zahl- und Stringfelder liegen in getrennten Listen: <code>A</code>, <code>A$</code>, <code>A(1)</code>
+und <code>A$(1)</code> sind vier verschiedene Objekte.</p>
+<h3 id="speicherformat">Speicherformat</h3>
+<table>
+<thead>
+<tr>
+<th>Art</th>
+<th>Liste</th>
+<th>Eintrag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Zahlvariable</td>
+<td><code>P_NUMVAR</code></td>
+<td>Name (2) + Wert (5)</td>
+</tr>
+<tr>
+<td>Stringvariable</td>
+<td><code>P_STRVAR</code></td>
+<td>Name (2) + Länge (1) + Text + 0Dh</td>
+</tr>
+<tr>
+<td>Feld</td>
+<td><code>P_ARRAYS</code> …</td>
+<td>Name (2) + Dimensionen (2) + (n+1)·(m+1) Elemente</td>
+</tr>
+<tr>
+<td>Zahl-Element</td>
+<td></td>
+<td>5 Bytes</td>
+</tr>
+<tr>
+<td>String-Element</td>
+<td></td>
+<td>Länge (1) + Text + 0Dh, anfangs 2 Bytes (0, 0Dh)</td>
+</tr>
+<tr>
+<td>DEF FN</td>
+<td><code>P_DEFFN</code></td>
+<td>Funktionsbuchstabe, Parameterbuchstabe, Tokentext, 0Dh</td>
+</tr>
+</tbody>
+</table>
+<p>Jede Liste endet mit dem Wort 0000h. Gesucht wird linear (<code>NUMVAR</code>, <code>STRVAR</code>, <code>LISTKEY_CMP</code>).</p>
+<h3 id="anlegen-und-suchen">Anlegen und Suchen</h3>
+<ul>
+<li><code>NUMVAR</code> sucht eine Zahlvariable; fehlt sie, wird sie am Listenende mit dem Wert 0 angelegt.
+  Zurück kommt DE = Adresse des Werts.</li>
+<li><code>STRVAR</code> sucht eine Stringvariable bzw. legt sie leer an (<code>LK2_NEW</code>). Der Name <code>TI</code> wird
+  vorher abgefangen: <strong><code>TI$</code></strong> ist keine echte Variable, sondern liest die Uhr (<code>TI_READ</code>,
+  Format <code>"hhmmss"</code>, 24 Stunden).</li>
+<li>Neue Einträge entstehen mit <code>MEMINS_ADJ</code>: alles dahinter rückt auf, <code>ADJ_PTRS</code> korrigiert die
+  Bereichszeiger.</li>
+</ul>
+<h3 id="zuweisung-let">Zuweisung (LET)</h3>
+<p><code>ST_LET</code> (1F99h) wertet zuerst den Ausdruck hinter <code>=</code> aus und bestimmt erst danach die
+Variable. Beide Angaben werden mit <code>SAVEPAR0</code>/<code>SAVEPAR1</code> nach 6B00h/6B04h gelegt; <code>ASSIGN</code>
+(1FD4h) führt die Zuweisung aus:</p>
+<ul>
+<li>Typen verschieden: Fehler 4.</li>
+<li>Zahl: 5 Bytes kopieren.</li>
+<li>String: der Platz der Variablen wird an die neue Länge angepasst (<code>ASG_RESIZE</code>,
+  <code>ASG_SHRINK</code>, über <code>MEMINS</code>/<code>MEMDEL</code> mit Zeigerkorrektur), dann der Text kopiert.</li>
+<li><code>TI$</code>: der Wert muss sechs Ziffern <code>hhmmss</code> sein (sonst Fehler 3); damit wird die Uhr
+  gestellt (<code>ASG_TI</code>).</li>
+</ul>
+<p>Es gibt <strong>keine Speicherbereinigung</strong> (Garbage Collection): Strings liegen immer genau so groß
+wie nötig an ihrem Platz, und Zwischenergebnisse verfallen mit dem Ende jeder Anweisung.
+Dafür kostet jede Längenänderung ein Verschieben aller dahinter liegenden Daten.</p>
+<p><code>INPUT</code>, <code>READ</code>, <code>GET</code>, <code>INP@</code> und die GP-IB/RS-232C-Leseanweisungen benutzen denselben Weg
+(<code>GETVAR</code> → <code>SAVEPAR1</code>, Wert → <code>SAVEPAR0</code>, <code>ASSIGN</code>).</p>
+<h3 id="felder-dim">Felder (DIM)</h3>
+<p><code>DIM name\[$\](n[,m])[,…]</code> legt ein Feld mit höchstens zwei Dimensionen an, jeder Index 0–255.
+Die Elemente werden mit 0 bzw. leeren Strings vorbelegt. Ein bereits vorhandenes Feld wird
+übergangen; passen die neuen Grenzen nicht hinein, folgt Fehler 3.</p>
+<p>Anders als in vielen BASIC-Dialekten werden Felder <strong>nicht automatisch angelegt</strong>: Der Zugriff
+auf ein Feld ohne <code>DIM</code> ergibt Fehler 3 (<code>ARR_ELEM</code>), ebenso ein zu großer Index.</p>
+<p><code>ARR_FIND</code> wählt die Liste nach Typ und Dimensionszahl. Beim Zugriff auf ein Stringelement
+werden die Einträge über ihre Längenbytes abgezählt (<code>ARR_STRPOS</code>) – lange Stringfelder sind
+deshalb langsam.</p>
+<h3 id="clr-und-das-loschen-von-variablen">CLR und das Löschen von Variablen</h3>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung auf Variablen</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CLR</code></td>
+<td>Variablen, Felder, DEF FN, Strings löschen; Programm bleibt</td>
+</tr>
+<tr>
+<td><code>RUN</code></td>
+<td>wie CLR, dazu Dateien schließen und Stacks zurücksetzen</td>
+</tr>
+<tr>
+<td><code>RUN zeile</code>, <code>GOTO</code></td>
+<td>Variablen bleiben</td>
+</tr>
+<tr>
+<td><code>NEW</code></td>
+<td>Programm und Variablen löschen</td>
+</tr>
+<tr>
+<td><code>CHAIN</code></td>
+<td>Variablen bleiben über den Programmwechsel</td>
+</tr>
+<tr>
+<td>Programmzeile editieren</td>
+<td>Variablen bleiben, CONT ist gesperrt</td>
+</tr>
+<tr>
+<td>Fehler (ohne ON ERROR)</td>
+<td>Dateien und Stacks werden zurückgesetzt, Variablen bleiben</td>
+</tr>
+</tbody>
+</table>
+<h2 id="strings">Strings</h2>
+<ul>
+<li>Höchstlänge 255 Zeichen; eine längere Verkettung ergibt Fehler 5.</li>
+<li>Zeichen ≥ 80h sind erlaubt (Grafikzeichen, Bit 7 = inverse Darstellung), außerhalb von
+  Strings im Programmtext aber nicht.</li>
+<li>Der Vergleich (<code>STRCMP</code>) prüft <strong>zuerst die Länge</strong>: Strings verschiedener Länge werden nur
+  nach ihrer Länge geordnet, ohne den Inhalt anzusehen. Erst bei gleicher Länge wird Zeichen für
+  Zeichen nach dem Code verglichen. Ein Sortieren mit <code>&lt;</code>/<code>&gt;</code> ergibt deshalb keine
+  alphabetische Reihenfolge, wenn die Strings verschieden lang sind; <code>=</code> und <code>&lt;&gt;</code> arbeiten wie
+  erwartet.</li>
+<li><code>STRLIT</code> liest String-Konstanten (in Anführungszeichen bis <code>"</code>, sonst bis <code>,</code> bzw.
+  Zeilenende – so liest auch <code>INPUT</code> Strings ohne Anführungszeichen). <code>STR_NEW</code> legt jedes
+  Zwischenergebnis als neuen Eintrag in <code>P_STRTMP</code> an.</li>
+</ul>
+<footer><div class="pn"><a class="prev" href="interpreter.html">← Interpreterschleife und Ablauf</a><a class="next" href="gleitkomma.html">Gleitkomma und Mathematik →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

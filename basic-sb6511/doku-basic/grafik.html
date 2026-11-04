@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grafik, Bildschirm, Drucker – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li class="cur"><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#grafik">Grafik</a></li><li><a href="#textbildschirm">Textbildschirm</a></li><li><a href="#drucker">Drucker</a></li></ul></aside>
+<h1 id="grafik-bildschirm-und-drucker">Grafik, Bildschirm und Drucker</h1>
+<h2 id="grafik">Grafik</h2>
+<p>Das BASIC unterstützt zwei Grafikebenen mit je <strong>320 × 200 Pixeln</strong>, 1 Bit
+je Pixel. Das Grafik-VRAM liegt bei E000h–FFFFh und wird nur für den Zugriff über die PIO
+(Port E8h, Bit 7) in den Adressraum eingeblendet. Port F4h (<code>GRPH</code>) wählt die Ebene zum Lesen und
+die Ebenen zum Schreiben.</p>
+<h3 id="adressierung">Adressierung</h3>
+<p><code>GR_ADDR</code> berechnet zu einem Punkt (x, y):</p>
+<pre><code>Adresse = E000h + y · 40 + x / 8        Bit = x mod 8
+</code></pre>
+<p>Eine Zeile hat also 40 Bytes; Bit 0 eines Bytes gehört zum kleinsten x.</p>
+<h3 id="befehle">Befehle</h3>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GRAPH [I n] [O ab] [C] [F]</code></td>
+<td>Leseebene n (1–2), Schreibebenen als Ziffernfolge (0–2), gewählte Ebenen löschen (<code>C</code>) oder füllen (<code>F</code>); schreibt den Wert nach Port F4h (<code>GRPH_PORT</code> = <code>GRPH_IN</code> + <code>GRPH_OUT</code>)</td>
+</tr>
+<tr>
+<td><code>SET x,y</code> / <code>RESET x,y</code></td>
+<td>Pixel setzen bzw. löschen; Grafikposition dorthin. Außerhalb des Bildes passiert nichts</td>
+</tr>
+<tr>
+<td><code>LINE x1,y1,x2,y2[,x3,y3 …]</code></td>
+<td>Streckenzug zeichnen (mindestens zwei Punkte, sonst Fehler 1)</td>
+</tr>
+<tr>
+<td><code>BLINE …</code></td>
+<td>Streckenzug löschen</td>
+</tr>
+<tr>
+<td><code>POSITION x,y</code></td>
+<td>Grafikposition setzen (x 0–319, y 0–199, sonst Fehler 3)</td>
+</tr>
+<tr>
+<td><code>PATTERN [-]n, m$[, …]</code></td>
+<td>Bitmuster an der Grafikposition zeichnen, n = 1–24 Zeilen je Spalte; mit <code>-</code> in Gegenrichtung</td>
+</tr>
+<tr>
+<td><code>POINT(x,y)</code></td>
+<td>Pixelzustand: Bit 1 = Ebene 1, Bit 0 = Ebene 0 (Wert 0–3)</td>
+</tr>
+<tr>
+<td><code>POSH</code>, <code>POSV</code></td>
+<td>aktuelle Grafikposition x bzw. y</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pixelroutinen">Pixelroutinen</h3>
+<p>Alle Pixelbefehle laufen über <code>GR_PIXOP</code> (DE = x, HL = y). A enthält das zweite Byte eines
+Z80-Bitbefehls – C6h für <code>SET 0,(HL)</code>, 86h für <code>RES 0,(HL)</code>, 46h für <code>BIT 0,(HL)</code>. Die Routine
+addiert die Bitnummer (· 8) und setzt den fertigen Befehl in <code>GR_PIX_DO</code> ein. So erledigt ein
+einziges Stück Code Setzen, Löschen und Testen.</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GR_SETPIX</code>, <code>GR_RESPIX</code>, <code>GR_TESTPIX</code></td>
+<td>Pixel bei (DE, HL)</td>
+</tr>
+<tr>
+<td><code>GR_SETCUR</code>, <code>GR_RESCUR</code></td>
+<td>Pixel an der Grafikposition <code>GR_X</code>/<code>GR_Y</code></td>
+</tr>
+<tr>
+<td><code>GR_POINT</code> (569Dh)</td>
+<td>beide Ebenen testen, A = 0–3 bzw. FFh außerhalb</td>
+</tr>
+<tr>
+<td><code>GR_LINE</code> (573Ah)</td>
+<td>Linie nach Bresenham von (<code>GRL_X1</code>, <code>GRL_Y1</code>) nach (DE, HL)</td>
+</tr>
+<tr>
+<td><code>LINE_SET</code>, <code>LINE_RESET</code></td>
+<td>Streckenzug aus einer Punktliste (DE, je Punkt x und y als 16-Bit-Werte), A = Anzahl Strecken</td>
+</tr>
+<tr>
+<td><code>GR_FILL</code>, <code>GR_CLEAR</code></td>
+<td>gewählte Ebenen mit FFh füllen bzw. löschen</td>
+</tr>
+<tr>
+<td><code>PAT_DRAW</code> (58A2h)</td>
+<td>Bitmuster zeichnen</td>
+</tr>
+<tr>
+<td><code>GR_WRBYTE</code></td>
+<td>ein Byte mit Maske ändern (Adressen über FFFFh werden übergangen)</td>
+</tr>
+</tbody>
+</table>
+<p><code>GR_LINE</code> verschiebt alle Koordinaten intern um 4000h (<code>GR_BIAS</code>), damit Differenzen positiv
+bleiben, und setzt die Schrittrichtung als <code>INC</code>/<code>DEC</code>-Befehle in den Code ein
+(<code>GRL_INCX</code>/<code>GRL_INCY</code>). Punkte außerhalb von 320×200 werden nicht gezeichnet.</p>
+<h3 id="pattern">PATTERN</h3>
+<p><code>PATTERN n, m$</code> zeichnet jedes Zeichen von m$ als 8 waagerechte Pixel. Nach n Zeichen
+(untereinander) geht es eine Spalte (8 Pixel) weiter nach rechts. Mit negativem n läuft die
+Zeichnung nach oben statt nach unten; dafür werden Schrittweite und <code>ADD</code>/<code>SBC</code> in
+<code>PAT_STRIDE</code>/<code>PAT_STEP</code> eingesetzt.</p>
+<h2 id="textbildschirm">Textbildschirm</h2>
+<p>Der Textbildschirm (Text-VRAM bei D000h) hat 25 Zeilen zu 40 oder 80 Zeichen. Ausgabe,
+Cursor und Editor gehören zum Monitor; das BASIC steuert sie über einige Befehle:</p>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CONSOLE [S a,b] [C 40|80] [R|N]</code></td>
+<td>Rollbereich Zeile a bis b (1–24, sonst Fehler 3), 40/80 Zeichen je Zeile, inverse (<code>R</code>) bzw. normale (<code>N</code>) Darstellung über PPI-Port A Bit 4. Mehrere Angaben nacheinander möglich</td>
+</tr>
+<tr>
+<td><code>CURSOR x,y</code></td>
+<td>Cursor setzen; x kleiner als die Zeilenbreite, y 0–24, sonst Fehler 3</td>
+</tr>
+<tr>
+<td><code>CSRH</code>, <code>CSRV</code></td>
+<td>Cursorspalte bzw. -zeile</td>
+</tr>
+<tr>
+<td><code>CHARACTER$(x,y)</code></td>
+<td>Zeichen an einer Bildschirmposition als String</td>
+</tr>
+<tr>
+<td><code>CHANGE</code></td>
+<td>Groß-/Kleinschreibung der Buchstabentasten tauschen</td>
+</tr>
+<tr>
+<td><code>DEF KEY(n)=text</code>, <code>KLIST</code></td>
+<td>Funktionstasten 1–10 belegen/anzeigen</td>
+</tr>
+</tbody>
+</table>
+<p>Steuerzeichen in Strings (z. B. Cursorbewegungen, Bildschirm löschen) wertet die
+Zeichenausgabe des Monitors aus.</p>
+<h2 id="drucker">Drucker</h2>
+<p>Der Drucker hängt an den Ports FEh (Steuerung/Status) und FFh (Daten).</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PRN_OUT</code></td>
+<td>Byte an Port FFh, Strobe über FEh, auf den Drucker warten (<code>PRN_WAIT</code>; Zeitüberschreitung: Fehler 65)</td>
+</tr>
+<tr>
+<td><code>PRN_ESC</code></td>
+<td>ESC (1Bh) senden</td>
+</tr>
+<tr>
+<td><code>PRN_CHECK</code></td>
+<td>Status abfragen (ESC 03h, ESC 04h); Fehler 67 bzw. 66</td>
+</tr>
+<tr>
+<td><code>PRN_TEXT</code></td>
+<td>Text drucken, Spalte <code>PRN_COL</code> mitzählen; Steuerzeichen 05h, 06h, 10h–15h werden in Druckerbefehle übersetzt (<code>PRN_CTRL</code>), andere unter 20h übergangen</td>
+</tr>
+<tr>
+<td><code>PRN_LINE</code></td>
+<td>Text unverändert drucken (für <code>LIST/P</code>, <code>DIR/P</code>)</td>
+</tr>
+<tr>
+<td><code>PRN_CRLF</code>, <code>PRN_EOLCHK</code></td>
+<td>Zeilenvorschub (bedingt)</td>
+</tr>
+<tr>
+<td><code>PRN_TABZONE</code></td>
+<td>Komma in PRINT: Leerzeichen bis zur nächsten durch 10 teilbaren Spalte</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PRINT/P …</code>, <code>LIST/P</code>, <code>DIR/P</code></td>
+<td>Ausgabe auf den Drucker</td>
+</tr>
+<tr>
+<td><code>PAGE/P n</code></td>
+<td>Seitenlänge n (1–255) einstellen (ESC 12h n)</td>
+</tr>
+<tr>
+<td><code>IMAGE/P a$[;…]</code></td>
+<td>Texte als Bitmuster senden (ESC 18h, Länge, Daten; höchstens 1000 Bytes, sonst Fehler 3); ohne Argument Zeilenvorschub</td>
+</tr>
+<tr>
+<td><code>COPY/P n</code></td>
+<td>Hardcopy: 1 = Textbildschirm (25 Zeilen ab D000h), 2–4 = Grafik (Ebenen je nach n, invertiert je nach Darstellung)</td>
+</tr>
+</tbody>
+</table>
+<p>Für <code>COPY/P</code> liest <code>GRAM_READ2</code> ein Byte aus beiden Grafikebenen; je nach Art der Kopie werden
+dazu andere Befehle in <code>GR2_PATCH</code> eingesetzt. BREAK bricht die Hardcopy ab.</p>
+<p>Die Druckerbefehle (ESC-Folgen) entsprechen Sharps Druckern der Zeit; welche Modelle genau
+gemeint sind, ist aus dem Code nicht ersichtlich.</p>
+<footer><div class="pn"><a class="prev" href="ein-ausgabe.html">← Ein-/Ausgabe und Dateien</a><a class="next" href="schnittstellen.html">GP-IB und RS-232C →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

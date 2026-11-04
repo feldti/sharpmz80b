@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erweitern und Verschieben – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li class="cur"><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#kein-freier-platz-im-original">Kein freier Platz im Original</a></li><li><a href="#platz-schaffen-mit-nojunk">Platz schaffen mit NOJUNK</a></li><li><a href="#was-die-pruefung-sicherstellt">Was die Prüfung sicherstellt</a></li><li><a href="#hinweise-fuer-eigenen-code">Hinweise für eigenen Code</a></li></ul></aside>
+<h1 id="erweitern-und-verschieben">Erweitern und Verschieben</h1>
+<p><code>sb6610.asm</code> ist wie die Quelle von SB-6511 <strong>verschiebbar</strong>: Jede Adresse im BASIC-Teil steht
+als Label, der Assembler passt alle Verweise an, wenn Code wächst oder schrumpft. Wie man einen
+neuen Befehl einbaut (Schlüsselwort, Sprungtabelle, Routine, Hilfsroutinen für Parameter), zeigt
+der Leitfaden der <a href="../../basic-sb6511/doku-basic/erweitern.html">SB-6511-Dokumentation</a>; er gilt für SB-6610
+genauso. Diese Seite beschreibt, was bei SB-6610 anders ist.</p>
+<h2 id="kein-freier-platz-im-original">Kein freier Platz im Original</h2>
+<p>Bei SB-6511 bleibt hinter dem Code Platz bis 6900h. Bei SB-6610 endet der Code <strong>genau</strong> bei
+6000h, wo der Arbeitsbereich beginnt; der letzte Nachtrag (<code>AREA_RESIZE_CLR</code>) füllt die
+letzten Bytes. Die Quelle prüft das:</p>
+<pre><code>IF $ &gt; 6000h
+.ERROR Code reicht über 6000h (Arbeitsbereich); mit NOJUNK übersetzen oder kürzen
+ENDIF
+FILL_FREE:
+DEFS 6000h-$,00h
+</code></pre>
+<h2 id="platz-schaffen-mit-nojunk">Platz schaffen mit NOJUNK</h2>
+<p>Die Speicherreste bei 5A13h–5CFFh (749 Bytes, siehe <a href="architektur.html#speicherreste">Aufbau</a>)
+werden nie ausgeführt. Die Quelle schließt sie in einen bedingten Block ein:</p>
+<pre><code>IF NOT DEFINED NOJUNK
+... Speicherreste ...
+ENDIF
+</code></pre>
+<p>Übersetzt man mit</p>
+<pre><code>pasmo --equ NOJUNK=1 sb6610/sb6610.asm sb6610_neu.bin
+</code></pre>
+<p>fallen sie weg, der Floppy-Treiber und alles dahinter rücken nach vorn, und am Ende stehen 749
+Bytes frei (<code>FILL_FREE</code>). Das Ergebnis ist nicht mehr bytegleich mit dem Original, verhält sich
+aber gleich – <code>make reloc-check</code> und die Tests prüfen genau das.</p>
+<p>Ein weiterer Kandidat zum Kürzen sind die sieben nie angesprungenen Bytes vor <code>DIV_NEXTDIG</code>
+(<code>LD HL,FPR_EXP / INC (HL) / EXX / JR DIV_DIGIT</code>), ein Rest einer früheren Fassung der Division.</p>
+<h2 id="was-die-pruefung-sicherstellt">Was die Prüfung sicherstellt</h2>
+<p><code>make reloc-check</code> fügt an sieben Stellen (<code>BAS_COLD</code>, <code>KWTAB_STMT</code>, <code>FP_NORM</code>, <code>OP_SUB</code>,
+<code>PR_USING</code>, <code>ST_DELLINES</code>, <code>FD_READ</code>) je 16 Bytes ein und vergleicht Zeile für Zeile mit dem
+Original:</p>
+<ul>
+<li>Jede veränderte Zeile darf sich nur in 16-Bit-Adressen unterscheiden, die genau mitgewandert sind.</li>
+<li>Kein Zahlenwert im Code darf auf eine Stelle zeigen, die sich verschiebt; echte Zahlen, die wie
+  Adressen aussehen, stehen begründet in <code>tools/reloc_allow.txt</code> (für SB-6610 die Konstante 10000
+  in <code>VAL2UINT</code>).</li>
+<li>Auf den verschobenen Abbildern laufen der Tokenizertest, der BCD-Test und der Gesamtlauf
+  (<code>tools/test_sb6610_run.py</code>).</li>
+</ul>
+<p>Dafür wurden bei der Analyse alle festen Adressen symbolisch gemacht, zum Beispiel
+<code>DEVTAB_PRINT+2*15</code>, <code>OPENTAB-2*10</code>, <code>USING_CHARS</code>, <code>RAM_START-1</code> oder die Zeichenlisten von
+PRINT USING.</p>
+<h2 id="hinweise-fuer-eigenen-code">Hinweise für eigenen Code</h2>
+<ul>
+<li>Zahlen sind 9 Bytes groß. Zum Kopieren eines Werts <code>LD BC,0009h</code> / <code>LDIR</code>; die Rechenroutinen
+  erwarten Zeiger auf das <strong>Exponentbyte</strong> (Byte 8) und rechnen <code>(DE) = (DE) op (HL)</code>.</li>
+<li>Ganzzahlige Ergebnisse sollten mit <code>FP_INTFORM</code> in Ganzzahlform gebracht werden, wie es die
+  Grundrechenarten tun; <code>FP_CMP</code>, <code>FN_INT</code> und die Ausgabe gehen von dieser Form aus.</li>
+<li>Eine Zahl 0–65535 aus einem Ausdruck holt <code>EVAL_INT</code>; einen Wert 0–255 als Ergebnis zurückgeben
+  kann <code>BYTE2VAL</code> bzw. <code>RET_A</code>.</li>
+<li>Der Monitorbereich 0000h–1221h ist nicht verschiebbar.</li>
+<li>Im Arbeitsbereich ab 6000h gibt es keinen Platz für eigene Variablen ohne Änderung der EQUs;
+  einzelne Bytes legt man besser im Code-Bereich an (wie <code>GET_LASTKEY</code> oder <code>LIST_LOCK</code>).</li>
+</ul>
+<footer><div class="pn"><a class="prev" href="fehler.html">← Fehler und Fehlerbehandlung</a><a class="next" href="werkzeuge.html">Werkzeuge und Tests →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

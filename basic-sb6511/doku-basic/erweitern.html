@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Einen Befehl einbauen – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li class="cur"><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#uberblick">Überblick</a></li><li><a href="#wie-ein-befehl-verarbeitet-wird">Wie ein Befehl verarbeitet wird</a></li><li><a href="#regeln">Regeln</a></li><li><a href="#schritt-1-und-2-schlusselwort-und-sprungtabelle">Schritt 1 und 2: Schlüsselwort und Sprungtabelle</a></li><li><a href="#schritt-3-die-routine-st_draw">Schritt 3: Die Routine ST_DRAW</a></li><li><a href="#hilfsroutinen-fur-die-parameterabfrage">Hilfsroutinen für die Parameterabfrage</a></li><li><a href="#schritt-4-werkzeuge-nachziehen-und-prufen">Schritt 4: Werkzeuge nachziehen und prüfen</a></li></ul></aside>
+<h1 id="einen-befehl-einbauen">Einen Befehl einbauen</h1>
+<p class="note">Übernommen aus <code>docs/NEUER_BEFEHL.md</code>.</p>
+
+<p>Stand: 26.10.2026</p>
+<h2 id="uberblick">Überblick</h2>
+<p>Ein neuer Befehl braucht drei Änderungen in <code>SB6511_RS232.asm</code>: das Schlüsselwort auf einem freien Platz in <code>KWTAB_STMT</code>, die Adresse der Routine im passenden Eintrag von <code>STMT_TAB</code> und die Routine selbst, an beliebiger Stelle im BASIC-Teil. Die Quelle ist ab <code>BAS_COLD</code> (1222h) verschiebbar: Wird die Tabelle länger oder kommt Code dazu, passt der Assembler alle Adressen an. Tokenizer, LIST und Ausführung sind tabellengesteuert; am Interpreter ändert sich nichts.</p>
+<p>Als Beispiel dient <code>DRAW x1,y1,x2,y2</code>: eine Linie von (x1,y1) nach (x2,y2). Der Leitfaden behandelt Schlüsselwort, Verteilung, Parameterabfrage, Bereichsprüfung und Übergabe. Gezeichnet wird mit der vorhandenen Linienroutine von LINE (<code>LINE_SET</code>); <code>GR_DRAWLINE</code> ist nur die Brücke dorthin.</p>
+<p>Alle Namen beziehen sich auf den Stand des Disassemblys im Repo <code>mf/basic-sb6511</code>. Das Beispiel ist genau so eingebaut und im Emulator geprüft worden (Ergebnisse in Schritt 3).</p>
+<h2 id="wie-ein-befehl-verarbeitet-wird">Wie ein Befehl verarbeitet wird</h2>
+<p>Ein Befehl durchläuft vier Stationen; nur die erste und die dritte kennen ihn über eine Tabelle, die vierte ist der neue Code.</p>
+<ol>
+<li><strong>Eingabe (CRUNCH):</strong> sucht an jeder Stelle der Zeile in <code>KWTAB_STMT</code>. Eintrag Nr. n wird zum Token <code>80h, 80h+n</code>. Leerzeichen innerhalb des Worts werden überlesen.</li>
+<li><strong>Auflisten (LISTLINE):</strong> wandelt <code>80h, 80h+n</code> über dieselbe Tabelle zurück in Klartext. Nichts zu tun.</li>
+<li><strong>Ausführen (DISPATCH):</strong> liest das Token, holt <code>STMT_TAB[n]</code> und springt die Routine an. Ein Byte unter 80h führt zu LET.</li>
+<li><strong>Routine (<code>ST_…</code>):</strong> liest ihre Parameter, führt aus und springt nach <code>NEXTSTMT</code> bzw. <code>NEXTSTMT_HL</code>.</li>
+</ol>
+<p>Zustand beim Einsprung in die Routine:</p>
+<table>
+<thead>
+<tr>
+<th>Was</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HL</td>
+<td>zeigt auf das erste Zeichen hinter dem Token</td>
+</tr>
+<tr>
+<td>TXTPTR</td>
+<td>noch nicht aktualisiert</td>
+</tr>
+<tr>
+<td>Stack</td>
+<td>Rückkehr ist nicht vorgesehen: die Routine endet mit <code>JP</code></td>
+</tr>
+<tr>
+<td>A, BC, DE</td>
+<td>ohne Bedeutung</td>
+</tr>
+</tbody>
+</table>
+<p>Zwei Wege zurück in die Interpreterschleife:</p>
+<ul>
+<li><code>JP NEXTSTMT</code> liest den Textzeiger aus TXTPTR. Passt zu <code>CHK_EOS</code>, das TXTPTR auf das Anweisungsende setzt.</li>
+<li><code>JP NEXTSTMT_HL</code> nimmt HL als Textzeiger. Passt, wenn HL nach der Parameterabfrage noch auf das Anweisungsende zeigt.</li>
+</ul>
+<p>Beide prüfen, ob dort <code>:</code> oder das Zeilenende steht; sonst Fehler 1.</p>
+<h2 id="regeln">Regeln</h2>
+<p>Adressen passt der Assembler an, Tokennummern nicht: Die Nummer eines Befehls ist seine Position in <code>KWTAB_STMT</code>. Sie steht in gespeicherten Programmen und an einigen Stellen fest im Code (<code>CP 0AEh</code> für EOF(, die Inline-Bytes 9Eh/9Fh für TO/STEP usw.). Ein neues Wort ersetzt deshalb einen freien Platz (<code>FFh</code>) und wird nicht dazwischen eingefügt.</p>
+<table>
+<thead>
+<tr>
+<th>Regel</th>
+<th>Warum</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Freien Platz Nr. 56, 60, 61, 74, 90 oder 99 nehmen</td>
+<td>Nr. 3 ist frei, aber CRUNCH behandelt Nr. 0–3 wie REM: der Rest bis <code>:</code> bleibt Klartext</td>
+</tr>
+<tr>
+<td>Kein früherer Eintrag darf ein Anfang des neuen Worts sein</td>
+<td>CRUNCH nimmt den ersten Treffer; Nr. 0–55 enthalten nichts, womit "DRAW" beginnt</td>
+</tr>
+<tr>
+<td>Das Wort wird überall erkannt</td>
+<td>Aus <code>DRAWN=1</code> wird DRAW + <code>N=1</code> (im Emulator geprüft). Vorhandene Programme mit solchen Namen ändern sich beim Neueintippen</td>
+</tr>
+<tr>
+<td>Code nur im BASIC-Teil ab <code>BAS_COLD</code></td>
+<td>Der Monitor (0000h–1221h) benutzt feste Adressen, unter anderem für seinen Arbeitsspeicher bei 103Fh–1221h</td>
+</tr>
+<tr>
+<td>Code muss vor 6900h enden</td>
+<td>Dort liegen zur Laufzeit die RS-232C-Puffer, ab 6B00h der BASIC-Arbeitsbereich</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Platz.</strong> Hinter dem Code sind bis 6900h nur 84 Bytes frei; dieser Füllbereich (<code>DEFS 6900h-$</code>) schrumpft mit, wenn Code dazukommt. Reicht der Code darüber hinaus, bricht der Build mit "Code reicht über 6900h" ab. Mehr Platz gibt <code>OLD_COPY</code> bei 6561h: 159 Bytes, eine unbenutzte Kopie von 560Bh–56A9h, die man löschen kann. DRAW braucht mit den 3 zusätzlichen Tabellenbytes 94 Bytes, also muss <code>OLD_COPY</code> weg.</p>
+<p><strong>Bytegleichheit.</strong> Mit dem neuen Befehl ist das Abbild nicht mehr gleich dem Original. <code>make check</code> schlägt deshalb erwartungsgemäß fehl (Schritt 4).</p>
+<h2 id="schritt-1-und-2-schlusselwort-und-sprungtabelle">Schritt 1 und 2: Schlüsselwort und Sprungtabelle</h2>
+<p>Zwei Zeilen machen DRAW zu Token <code>80h, B8h</code> (Nr. 56) und verbinden es mit <code>ST_DRAW</code>.</p>
+<p><strong>1. Schlüsselwort</strong> (<code>KWTAB_STMT</code>). Das letzte Zeichen trägt Bit 7; die Tabelle wird 3 Bytes länger, alles dahinter rückt nach:</p>
+<pre><code class="language-diff">-        DEFB    0FFh                    ; Nr.  56: (frei)
++        DEFB    &quot;DRA&quot;,&quot;W&quot;+80h           ; Nr.  56: DRAW
+</code></pre>
+<p><strong>2. Sprungtabelle</strong> (<code>STMT_TAB</code>, Eintrag 56):</p>
+<pre><code class="language-diff">-        DEFW    ERR_01                  ; Token 80h,B8h: (frei) -&gt; Syntax Error
++        DEFW    ST_DRAW                 ; Token 80h,B8h: DRAW
+</code></pre>
+<h2 id="schritt-3-die-routine-st_draw">Schritt 3: Die Routine ST_DRAW</h2>
+<p><code>ST_DRAW</code> liest vier Ausdrücke durch Kommas getrennt, prüft jeden sofort und legt sie in einen Parameterblock. Erst wenn das Anweisungsende geprüft ist, ruft sie die Zeichenroutine auf. So wird bei einem Fehler nie halb gezeichnet.</p>
+<p>Die Routine kann an beliebiger Stelle im BASIC-Teil stehen, zum Beispiel bei den Grafikbefehlen vor <code>ST_CONSOLE</code>. Dazu <code>OLD_COPY</code> löschen (von seinem Kommentarkopf bis vor den Abschnitt "RS-232C-ERWEITERUNG"):</p>
+<pre><code class="language-asm">; ------------------------------------------------------------------------------
+;  ST_DRAW – Anweisung DRAW x1,y1,x2,y2   (Token 80h,B8h)
+;  Linie von (x1,y1) nach (x2,y2), x 0-319, y 0-199, sonst Fehler 3.
+;  Übergabe an GR_DRAWLINE: HL zeigt auf DRAW_PAR (x1, y1, x2, y2 je 16 Bit).
+; ------------------------------------------------------------------------------
+ST_DRAW:
+        CALL    EVAL_INT                ; x1 -&gt; DE, HL hinter den Ausdruck
+        CALL    DRAW_CHKX
+        LD      (DRAW_X1),DE
+        CALL    SYNCHK
+        DEFB    2Ch                     ; Inline-Parameter ','
+        CALL    EVAL_INT                ; y1
+        CALL    DRAW_CHKY
+        LD      (DRAW_Y1),DE
+        CALL    SYNCHK
+        DEFB    2Ch                     ; Inline-Parameter ','
+        CALL    EVAL_INT                ; x2
+        CALL    DRAW_CHKX
+        LD      (DRAW_X2),DE
+        CALL    SYNCHK
+        DEFB    2Ch                     ; Inline-Parameter ','
+        CALL    EVAL_INT                ; y2
+        CALL    DRAW_CHKY
+        LD      (DRAW_Y2),DE
+        CALL    CHK_EOS                 ; Anweisungsende, TXTPTR setzen
+        LD      HL,DRAW_PAR
+        CALL    GR_DRAWLINE             ; darf alle Register ändern
+        JP      NEXTSTMT                ; weiter ab TXTPTR
+DRAW_CHKX:
+        PUSH    HL
+        LD      HL,319                  ; größtes x
+        JR      DRAW_CHK
+DRAW_CHKY:
+        PUSH    HL
+        LD      HL,199                  ; größtes y
+DRAW_CHK:
+        OR      A
+        SBC     HL,DE                   ; Grenze - Wert, C bei Wert &gt; Grenze
+        POP     HL                      ; Textzeiger zurück (Flags bleiben)
+        JP      C,ERR_03
+        RET
+DRAW_PAR:
+DRAW_X1:
+        DEFW    0
+DRAW_Y1:
+        DEFW    0
+DRAW_X2:
+        DEFW    0
+DRAW_Y2:
+        DEFW    0
+GR_DRAWLINE:                            ; eine Strecke über LINE_SET zeichnen
+        LD      D,H                     ; DE = Punktliste (x1,y1,x2,y2)
+        LD      E,L
+        LD      A,01h                   ; eine Strecke
+        JP      LINE_SET
+</code></pre>
+<p>Die Punkte, auf die es ankommt:</p>
+<ol>
+<li><strong>Textzeiger in HL.</strong> Jede Hilfsroutine erwartet ihn in HL und gibt ihn dahinter zurück. Was HL sonst braucht, muss es retten: <code>DRAW_CHK</code> macht <code>PUSH HL</code>/<code>POP HL</code> um die Rechnung.</li>
+<li><strong>Werte sofort ablegen.</strong> <code>EVAL_INT</code> wertet über EVAL aus und ändert dabei außer HL praktisch alle Register, auch die Schattenregister (EXX). Ein Wert in einem Register überlebt den nächsten Aufruf nicht. Darum wandert jeder Wert gleich nach <code>DRAW_X1</code> usw.; der Stack ginge auch (<code>PUSH DE</code>), dann müssen die POPs in umgekehrter Reihenfolge stehen.</li>
+<li><strong>Bereich mit <code>EVAL_INT</code> + eigener Grenze.</strong> <code>EVAL_INT</code> liefert schon 0–65535 und meldet negative Werte, Werte über 65535 (Fehler 3) und Strings (Fehler 4) selbst. Die Obergrenze prüft <code>DRAW_CHK</code> wie <code>FN_POINT</code> (319 bzw. 199).</li>
+<li><strong>Trennzeichen mit <code>SYNCHK</code>.</strong> Das Byte dahinter ist ein Inline-Parameter, kein Befehl. Fehlt das Komma, kommt Fehler 1.</li>
+<li><strong>Ende mit <code>CHK_EOS</code> und <code>JP NEXTSTMT</code>.</strong> <code>CHK_EOS</code> verlangt <code>:</code> oder Zeilenende und speichert die Stelle in TXTPTR. Deshalb darf <code>GR_DRAWLINE</code> HL und alle anderen Register frei benutzen.</li>
+<li><strong>Nur Labels, keine Adressen als Zahl.</strong> Jede Adresse im Abbild als Label oder Label-Ausdruck schreiben (<code>LD HL,DRAW_PAR</code>, nicht <code>LD HL,5A6Fh</code>); sonst wandert sie nicht mit. <code>make reloc-check</code> findet solche Stellen.</li>
+</ol>
+<p><strong>Schnittstelle zur Zeichenroutine.</strong> <code>GR_DRAWLINE</code> bekommt HL = Adresse von <code>DRAW_PAR</code>. Dort stehen x1, y1, x2, y2 als 16-Bit-Werte (Low-Byte zuerst), bereits geprüft. Das ist genau das Format, das die Linienroutine von LINE erwartet: <code>LINE_SET</code> (zeichnen) bzw. <code>LINE_RESET</code> (löschen) nehmen in DE eine Punktliste (je Punkt x, y als 16-Bit-Werte) und in A die Anzahl der Strecken. Sie zeichnen nach Bresenham, übergehen Punkte außerhalb von 320×200, setzen die Grafikposition (<code>GR_X</code>/<code>GR_Y</code>) auf den letzten Punkt und ändern alle Register. <code>GR_DRAWLINE</code> setzt deshalb nur DE = HL und A = 1 und springt hinein.</p>
+<p>Das Ergebnis im Emulator (DRAW wie oben eingebaut, <code>ST_DRAW</code> bei 5A3Ch, <code>KWTAB_OPS</code> von 1839h nach 183Ch gerückt; <code>ST_DRAW</code> angesprungen wie von DISPATCH). Die Parameterprüfung lief mit einem Stub für <code>GR_DRAWLINE</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Eingabe</th>
+<th>Ergebnis</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>10 DRAW 0,0,319,199</code></td>
+<td>Token <code>80 B8</code>, LIST gibt die Zeile unverändert aus</td>
+</tr>
+<tr>
+<td><code>30 D R A W 1,2,3,4:PRINT</code></td>
+<td>wird ebenfalls DRAW</td>
+</tr>
+<tr>
+<td><code>DRAW 10,20,300,199</code></td>
+<td>aufgerufen mit 10, 20, 300, 199</td>
+</tr>
+<tr>
+<td><code>DRAW 2*5 , 20, 319 ,0</code></td>
+<td>aufgerufen mit 10, 20, 319, 0</td>
+</tr>
+<tr>
+<td><code>DRAW 1,2,3,4:PRINT</code></td>
+<td>aufgerufen, TXTPTR steht auf <code>:</code></td>
+</tr>
+<tr>
+<td><code>DRAW 320,0,0,0</code> / <code>DRAW 0,200,0,0</code> / <code>DRAW -1,0,0,0</code></td>
+<td>Fehler 3, nicht aufgerufen</td>
+</tr>
+<tr>
+<td><code>DRAW 1,2,3</code> / <code>DRAW 1,2,3,4,5</code></td>
+<td>Fehler 1, nicht aufgerufen</td>
+</tr>
+<tr>
+<td><code>DRAW "A",0,0,0</code></td>
+<td>Fehler 4, nicht aufgerufen</td>
+</tr>
+</tbody>
+</table>
+<p>Mit der echten <code>GR_DRAWLINE</code> gesetzte Pixel im Grafik-VRAM (E000h + y*40 + x/8, Bit x mod 8):</p>
+<table>
+<thead>
+<tr>
+<th>Eingabe</th>
+<th>gesetzte Pixel (x,y)</th>
+<th>Grafikposition danach</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DRAW 0,0,7,0</code></td>
+<td>(0,0) bis (7,0)</td>
+<td>(7,0)</td>
+</tr>
+<tr>
+<td><code>DRAW 0,0,0,5</code></td>
+<td>(0,0) bis (0,5)</td>
+<td>(0,5)</td>
+</tr>
+<tr>
+<td><code>DRAW 3,3,0,0</code></td>
+<td>(0,0), (1,1), (2,2), (3,3)</td>
+<td>(0,0)</td>
+</tr>
+<tr>
+<td><code>DRAW 319,199,317,197</code></td>
+<td>(317,197), (318,198), (319,199)</td>
+<td>(317,197)</td>
+</tr>
+<tr>
+<td><code>DRAW 10,0,14,2</code></td>
+<td>(10,0), (11,0), (12,1), (13,1), (14,2)</td>
+<td>(14,2)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="hilfsroutinen-fur-die-parameterabfrage">Hilfsroutinen für die Parameterabfrage</h2>
+<p>Alle Routinen erwarten den Textzeiger in HL, überlesen Leerzeichen selbst und lassen HL hinter dem Gelesenen stehen.</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufruf</th>
+<th>Ergebnis</th>
+<th>Fehler</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EVAL_INT</code></td>
+<td><code>CALL EVAL_INT</code></td>
+<td>DE = Ausdruck als ganze Zahl 0–65535 (Nachkommastellen abgeschnitten)</td>
+<td>3 (Bereich), 4 (String), 1 (Syntax)</td>
+</tr>
+<tr>
+<td><code>EVAL_BYTE</code></td>
+<td><code>CALL EVAL_BYTE</code></td>
+<td>DE = 0–255, D = 0</td>
+<td>wie <code>EVAL_INT</code>, &gt; 255: 3</td>
+</tr>
+<tr>
+<td><code>EVAL_ADDR</code></td>
+<td><code>CALL EVAL_ADDR</code></td>
+<td>DE = Adresse: <code>$</code> + bis zu 4 Hexziffern oder ein Ausdruck</td>
+<td>3</td>
+</tr>
+<tr>
+<td><code>EVAL</code></td>
+<td><code>CALL EVAL</code></td>
+<td>D = 0: Zahl als Gleitkommawert bei (VALSP); D ≠ 0: String; A = nächstes Zeichen</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>GETSTR</code></td>
+<td>nach <code>EVAL</code></td>
+<td>DE = Text, C = Länge des Strings</td>
+<td>4 bei einer Zahl</td>
+</tr>
+<tr>
+<td><code>SYNCHK</code></td>
+<td><code>CALL SYNCHK</code> + <code>DEFB zeichen</code></td>
+<td>Zeichen muss folgen, HL dahinter</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>CHK_CHR_ALT</code></td>
+<td><code>CALL CHK_CHR_ALT</code> + <code>DEFB zeichen</code> + <code>DEFW ziel</code></td>
+<td>Zeichen da: dahinter weiter; sonst Sprung nach <code>ziel</code></td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>SKIPCOMMA</code></td>
+<td><code>CALL SKIPCOMMA</code></td>
+<td>ein Komma wird überlesen, falls vorhanden</td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>CHK_RPAR</code></td>
+<td><code>CALL CHK_RPAR</code></td>
+<td><code>)</code> muss folgen</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>CHRGET</code></td>
+<td><code>CALL CHRGET</code></td>
+<td>A = nächstes Zeichen; Z, wenn <code>:</code> oder Zeilenende</td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>CHK_EOS</code></td>
+<td><code>CALL CHK_EOS</code></td>
+<td>Anweisungsende muss folgen; TXTPTR wird gesetzt</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>CHK_NODIRECT</code> / <code>CHK_DIRECT</code></td>
+<td>am Anfang der Routine</td>
+<td>nur im Programm bzw. nur im Direktmodus</td>
+<td>19</td>
+</tr>
+<tr>
+<td><code>GETNAME_SN</code> + <code>GETVAR</code></td>
+<td>für Rückgabe-Variablen</td>
+<td>Variable suchen bzw. anlegen; Zuweisung über <code>SAVEPAR1</code>, <code>SAVEPAR0</code>, <code>ASSIGN</code> (siehe <code>ST_INPAT</code>)</td>
+<td>1, 4</td>
+</tr>
+<tr>
+<td><code>ERR_01</code>, <code>ERR_03</code>, …</td>
+<td><code>JP ERR_nn</code></td>
+<td>Fehlermeldung, Abbruch der Anweisung</td>
+<td>–</td>
+</tr>
+</tbody>
+</table>
+<p>Zwei Muster aus vorhandenen Befehlen helfen beim Erweitern:</p>
+<ul>
+<li><strong>Optionaler Parameter:</strong> <code>CALL CHRGET</code> / <code>JR Z,ohne</code> prüft, ob noch etwas folgt (so liest <code>ST_AUTO</code> seine Vorgaben).</li>
+<li><strong>Optionales Schlüsselwort oder Zeichen:</strong> <code>CALL CHK_CHR_ALT</code> mit dem Token- oder Zeichenbyte und einem Ausweichziel (so erkennt <code>ST_ON</code> die Form ON SRQ an den Tokenbytes 80h, D6h).</li>
+</ul>
+<h2 id="schritt-4-werkzeuge-nachziehen-und-prufen">Schritt 4: Werkzeuge nachziehen und prüfen</h2>
+<p>Nach dem Einbau muss der Tokenizer die neue Tabelle kennen; die Befehlsreferenz folgt von selbst.</p>
+<p><strong>Werkzeuge anpassen:</strong></p>
+<ol>
+<li><code>tools/sb6511tok.py</code>: in <code>STMT</code> Eintrag 56 von <code>None</code> auf <code>"DRAW"</code> setzen.</li>
+<li><code>make ref</code> trägt DRAW mit Token, Routine und der ersten Kommentarzeile in <code>docs/BEFEHLE.md</code> ein.</li>
+</ol>
+<p><strong>Prüfen:</strong></p>
+<ol>
+<li><code>make</code>: baut das neue Abbild; bricht ab, wenn der Code über 6900h reicht.</li>
+<li><code>make reloc-check</code>: findet Adressen, die als Zahl statt als Label im neuen Code stehen, und lässt die Tokenizer-Tests auf verschobenen Abbildern laufen.</li>
+<li><code>python3 tools/test_sb6511tok.py --image build/SB6511_RS232.bin --sym build/SB6511_RS232.sym</code>: Tokenizer-Tests gegen das neue Abbild; der Tabellentest bestätigt, dass <code>sb6511tok.py</code> und <code>KWTAB_STMT</code> übereinstimmen.</li>
+<li>Im Emulator: <code>CLEARALL</code> aufrufen, eine tokenisierte Zeile nach TOKTEXT legen, mit HL hinter dem Token nach <code>ST_DRAW</code> springen und bei <code>NEXTSTMT</code> anhalten. Für die Parameterprüfung <code>GR_DRAWLINE</code> durch einen Stub ersetzen, der HL merkt; für die Pixel danach den Speicher ab E000h auswerten (im Emulator ist das Grafik-VRAM gewöhnlicher Speicher). Die Ergebnisse oben stammen aus genau diesem Aufbau.</li>
+<li>Am Gerät oder in MAME (<code>mz80b</code>): MZF aus dem alten Header und <code>build/SB6511_RS232.bin</code> zusammensetzen (<code>head -c 128</code> + Binärdatei) und auf dem Bildschirm prüfen (vorher mit GRAPH die Schreibebene wählen und die Grafik einblenden).</li>
+</ol>
+<p><strong><code>make check</code></strong> schlägt nach dem Einbau fehl, weil das Abbild nicht mehr dem Original entspricht. Für eine erweiterte Fassung sind ein eigener Zweig und eine eigene Prüfsumme sinnvoll; das bytegleiche Disassembly bleibt so als Referenz erhalten.</p>
+<footer><div class="pn"><a class="prev" href="fehler.html">← Fehler und Fehlerbehandlung</a><a class="next" href="routinen.html">Routinenverzeichnis →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

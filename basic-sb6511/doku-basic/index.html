@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Überblick – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li class="cur"><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#das-system-in-zahlen">Das System in Zahlen</a></li><li><a href="#wie-diese-doku-entstanden-ist">Wie diese Doku entstanden ist</a></li><li><a href="#begriffe">Begriffe</a></li></ul></aside>
+<h1 id="disk-basic-sb-6511-technische-dokumentation">Disk BASIC SB-6511 – Technische Dokumentation</h1>
+<p>Diese Dokumentation beschreibt den BASIC-Interpreter <strong>SB-6511</strong> von Sharp (1981) für den
+Personal Computer <strong>Sharp MZ-80B</strong>, so wie er im kommentierten Disassembly
+<code>SB6511_RS232.asm</code> vorliegt. Gemeint ist die Variante mit <strong>RS-232C-Erweiterung</strong>
+(zusätzliche Befehle <code>RSMODE</code>, <code>RSO</code>, <code>RSI</code>).</p>
+<p>Sie richtet sich an alle, die verstehen wollen, <em>wie</em> der Interpreter arbeitet: wie eine
+Eingabezeile zu Token wird, wie die Interpreterschleife Anweisungen verteilt, wie Ausdrücke
+und Gleitkommazahlen berechnet werden, wie Dateien auf Diskette und Kassette angelegt werden
+und wo man eigene Befehle einhängen kann.</p>
+<div class="cards">
+<p><a href="architektur.html"><strong>Aufbau und Speicher</strong>Start, Speicherkarte von Abbild und Laufzeit-RAM, Bereichszeiger.</a>
+<a href="tokenizer.html"><strong>Tokenizer und Programmtext</strong>Token-Format, CRUNCH, LISTLINE, Zeilenformat, Editor.</a>
+<a href="interpreter.html"><strong>Interpreterschleife</strong>NEXTSTMT, DISPATCH, Stacks für FOR/GOSUB/FN, Kontrollfluss.</a>
+<a href="ausdruecke.html"><strong>Ausdrücke und Variablen</strong>Rangfolge, Wertestack, Variablen, Felder, Strings, DEF FN.</a>
+<a href="gleitkomma.html"><strong>Gleitkomma und Mathematik</strong>5-Byte-Format, Grundrechenarten, Umwandlung, SIN/EXP/LN …</a>
+<a href="befehle.html"><strong>Befehlsreferenz</strong>Alle Schlüsselwörter mit Token, Routine und Adresse.</a>
+<a href="ein-ausgabe.html"><strong>Ein-/Ausgabe und Dateien</strong>PRINT/INPUT, Geräteverteilung, Disketten-Dateisystem, Kassette.</a>
+<a href="grafik.html"><strong>Grafik, Bildschirm, Drucker</strong>320×200-Grafik, CONSOLE, Druckerbefehle.</a>
+<a href="schnittstellen.html"><strong>GP-IB und RS-232C</strong>IEEE-488-Befehle, serielle Erweiterung mit Ringpuffer.</a>
+<a href="fehler.html"><strong>Fehler</strong>Fehlernummern 1–70, ON ERROR, RESUME, BREAK.</a>
+<a href="erweitern.html"><strong>Einen Befehl einbauen</strong>Leitfaden am Beispiel DRAW.</a>
+<a href="routinen.html"><strong>Routinenverzeichnis</strong>Alle kommentierten Routinen mit Adresse.</a></p>
+</div>
+<h2 id="das-system-in-zahlen">Das System in Zahlen</h2>
+<table>
+<thead>
+<tr>
+<th>Merkmal</th>
+<th>Wert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hersteller, Jahr</td>
+<td>Sharp Corp., 1981 (<code>Copyright 1981 by SHARP Corp.</code>)</td>
+</tr>
+<tr>
+<td>Rechner</td>
+<td>Sharp MZ-80B, Z80 mit 4 MHz, 64 KB RAM</td>
+</tr>
+<tr>
+<td>Abbild</td>
+<td><code>Disk Basic6511ipl.mzf</code>, 7E00h Bytes (32 256), geladen ab 0000h</td>
+</tr>
+<tr>
+<td>Monitor im Abbild</td>
+<td>SB-1510 (0000h–1221h)</td>
+</tr>
+<tr>
+<td>BASIC-Teil</td>
+<td>1222h–68ABh (ca. 21,6 KB), davon ca. 3,5 KB Gleitkomma und Mathematik, 0,7 KB Floppy-Treiber</td>
+</tr>
+<tr>
+<td>Programmbeginn</td>
+<td>725Ch (<code>PRGTXT</code>)</td>
+</tr>
+<tr>
+<td>Anweisungen</td>
+<td>93 belegte von 100 Plätzen (Token <code>80h,80h</code>–<code>80h,E3h</code>)</td>
+</tr>
+<tr>
+<td>Operatoren/Funktionen</td>
+<td>9 Vergleichsoperatoren, <code>TO</code>/<code>STEP</code>, 20 Funktionen A0h–B3h, 12 mathematische Funktionen C0h–CBh</td>
+</tr>
+<tr>
+<td>Zahlen</td>
+<td>5-Byte-Gleitkomma, 32-Bit-Mantisse, ca. 9 Stellen genau, Ausgabe mit 8 Stellen</td>
+</tr>
+<tr>
+<td>Strings</td>
+<td>bis 255 Zeichen, dynamisch im Speicher verschoben</td>
+</tr>
+<tr>
+<td>Variablennamen</td>
+<td>2 signifikante Zeichen</td>
+</tr>
+<tr>
+<td>Felder</td>
+<td>höchstens zwei Dimensionen, je Index 0–255</td>
+</tr>
+<tr>
+<td>Verschachtelung</td>
+<td>15 FOR, 15 GOSUB, 5 FN-Ebenen</td>
+</tr>
+<tr>
+<td>Fehlernummern</td>
+<td>1–70 (davon einige ohne bekannte Bedeutung)</td>
+</tr>
+<tr>
+<td>Disketten</td>
+<td>16 Sektoren × 256 Bytes je Spur, Controller MB8876, bis 4 Laufwerke</td>
+</tr>
+</tbody>
+</table>
+<h2 id="wie-diese-doku-entstanden-ist">Wie diese Doku entstanden ist</h2>
+<p>Grundlage ist ausschließlich das Disassembly. Alle Routinen und Datenbereiche tragen dort
+Namen aus der Analyse (z. B. <code>CRUNCH</code>, <code>ST_FOR</code>, <code>OP_MUL</code>); Sharps Originalnamen sind nicht
+bekannt. Die Namen werden in dieser Doku unverändert benutzt, damit man jede Aussage in
+<code>SB6511_RS232.asm</code> bzw. im Listing <code>SB6511_RS232.lst</code> nachschlagen kann.</p>
+<p>Adressen werden hexadezimal mit nachgestelltem <code>h</code> angegeben und beziehen sich auf das
+Original-Abbild. Ab <code>BAS_COLD</code> (1222h) ist die Quelle verschiebbar; wer Code einfügt, bekommt
+andere Adressen – die Namen bleiben.</p>
+<blockquote>
+<p>Wo die Deutung des Codes nur erschlossen ist, sagt das die Doku. Offene Punkte (z. B. die
+einzelnen Statusbits der GP-IB-Karte oder die Bedeutung einiger Fehlernummern) sind als
+solche gekennzeichnet.</p>
+</blockquote>
+<h2 id="begriffe">Begriffe</h2>
+<table>
+<thead>
+<tr>
+<th>Begriff</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direktmodus</td>
+<td>eine ohne Zeilennummer eingegebene Zeile wird sofort ausgeführt (<code>CURLNUM</code> = 0)</td>
+</tr>
+<tr>
+<td>Programmmodus</td>
+<td>eine Programmzeile läuft (<code>CURLNUM</code> ≠ 0)</td>
+</tr>
+<tr>
+<td>Token</td>
+<td>Byte(folge), die ein Schlüsselwort im gespeicherten Programm ersetzt</td>
+</tr>
+<tr>
+<td>Textzeiger</td>
+<td><code>TXTPTR</code>: aktuelle Lese­position des Interpreters im Programmtext</td>
+</tr>
+<tr>
+<td>Wertestack</td>
+<td>Stapel der Zwischenergebnisse bei der Ausdrucksauswertung (<code>VALSP</code>, 5 Bytes je Eintrag)</td>
+</tr>
+<tr>
+<td>Bereichszeiger</td>
+<td>Zeiger 704Eh–7095h auf die dynamischen Speicherbereiche (Programm, Variablen, Felder, Strings …)</td>
+</tr>
+<tr>
+<td>Inline-Parameter</td>
+<td>Daten (<code>DEFB</code>/<code>DEFW</code>) direkt hinter einem <code>CALL</code>, die die gerufene Routine liest</td>
+</tr>
+<tr>
+<td>BTX / OBJ / BSD / BRD</td>
+<td>Dateitypen: BASIC-Programm, Maschinenprogramm, sequentielle Datei, Satzdatei</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="next" href="architektur.html">Aufbau und Speicher →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

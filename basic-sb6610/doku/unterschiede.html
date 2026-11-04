@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unterschiede zu SB-6511 – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li class="cur"><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#neu-in-sb-6610">Neu in SB-6610</a></li><li><a href="#weggefallen">Weggefallen</a></li><li><a href="#geaendert">Geändert</a></li><li><a href="#gleich-geblieben">Gleich geblieben</a></li></ul></aside>
+<h1 id="unterschiede-zu-sb-6511">Unterschiede zu SB-6511</h1>
+<p>SB-6610 entstand aus derselben Quelle wie SB-6511. Etwa drei Viertel des BASIC-Teils stimmen
+Byte für Byte überein, wenn man nur die Adressen außer Acht lässt. Die folgende Übersicht fasst
+alle gefundenen Abweichungen zusammen; Einzelheiten stehen auf den jeweiligen Seiten.</p>
+<h2 id="neu-in-sb-6610">Neu in SB-6610</h2>
+<table>
+<thead>
+<tr>
+<th>Neuerung</th>
+<th>Wo</th>
+<th>Seite</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BCD-Arithmetik mit 16 Stellen, 9-Byte-Zahlen</td>
+<td>2DEDh–37D6h</td>
+<td><a href="zahlen.html">Zahlen</a></td>
+</tr>
+<tr>
+<td><code>PRINT [/P] USING schablone; …</code> (Token 9Dh)</td>
+<td><code>PR_USING</code> 38CBh, <code>USING_PARSE</code> 5295h, <code>NUM_OUT</code> 5350h</td>
+<td><a href="printusing.html">PRINT USING</a></td>
+</tr>
+<tr>
+<td><code>DELETE a-b</code> löscht Programmzeilen; <code>DELETE "datei"</code> wie bisher</td>
+<td><code>ST_DELLINES</code> 440Ah</td>
+<td><a href="tokenizer.html#delete-programmzeilen-loeschen">Tokenizer</a></td>
+</tr>
+<tr>
+<td>eindimensionale Felder mit Index über 255</td>
+<td><code>ARR_FIND</code></td>
+<td><a href="interpreter.html#felder">Interpreter</a></td>
+</tr>
+<tr>
+<td><code>GET</code> liefert eine gehaltene Taste nur einmal</td>
+<td><code>GET_LASTKEY</code> 2B4Bh</td>
+<td><a href="ein-ausgabe.html#get">Ein-/Ausgabe</a></td>
+</tr>
+<tr>
+<td>Sperre für <code>LIST</code> und <code>SAVE</code> (<code>LIST_LOCK</code>, ungeklärt)</td>
+<td><code>CHK_DIRECT_LK</code> 1C63h</td>
+<td><a href="interpreter.html#list-lock-ein-unbekannter-listschutz">Interpreter</a></td>
+</tr>
+<tr>
+<td>Druckerbreite 80/136 Zeichen bei Schriftwechsel</td>
+<td><code>PRN_DOTW</code> 5178h</td>
+<td><a href="ein-ausgabe.html#drucker">Ein-/Ausgabe</a></td>
+</tr>
+<tr>
+<td>Ziffer 0 als Buchstabe „O“ bei PRINT USING (<code>POKE $002D,1</code>)</td>
+<td><code>USING_DIGS</code></td>
+<td><a href="printusing.html">PRINT USING</a></td>
+</tr>
+<tr>
+<td>drei nachträgliche Korrekturen (INT, POINT, Bereichszeiger)</td>
+<td><code>INT_FINISH</code>, <code>POINT_GET</code>, <code>AREA_RESIZE_CLR</code></td>
+<td><a href="index.html#fassungen">Überblick</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="weggefallen">Weggefallen</h2>
+<table>
+<thead>
+<tr>
+<th>Was</th>
+<th>Folge</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>^</code>, <code>SIN(</code>, <code>COS(</code>, <code>TAN(</code>, <code>ATN(</code>, <code>EXP(</code>, <code>LOG(</code>, <code>LN(</code></td>
+<td>Tabelleneinträge zeigen auf <code>ERR_01</code>: Fehler 1. Das Handbuch (2.4.4) verweist auf BASIC-Unterprogramme in der Datei „FUNCTION“ der Systemdiskette.</td>
+</tr>
+<tr>
+<td><code>APPEND</code></td>
+<td>Fehler 1</td>
+</tr>
+<tr>
+<td>GP-IB-Befehle (<code>SSRQ</code>, <code>GPIB</code>, <code>PPC</code> … <code>EOI</code>), <code>ON SRQ</code></td>
+<td>Plätze in der Schlüsselworttabelle frei (FFh)</td>
+</tr>
+<tr>
+<td>RS-232C (<code>RSMODE</code>, <code>RSO</code>, <code>RSI</code>), Ringpuffer, SIO-Interrupts</td>
+<td>Monitor läuft mit <code>IM 1</code> statt <code>IM 2</code></td>
+</tr>
+<tr>
+<td>Fehler 29–39 (RS-232C, GP-IB)</td>
+<td>Nummern bleiben in der Kette, werden aber nicht mehr ausgelöst</td>
+</tr>
+</tbody>
+</table>
+<h2 id="geaendert">Geändert</h2>
+<table>
+<thead>
+<tr>
+<th>Was</th>
+<th>SB-6511</th>
+<th>SB-6610</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Zahl im Speicher</td>
+<td>5 Bytes (Exponent + 32-Bit-Mantisse)</td>
+<td>9 Bytes (16 BCD-Ziffern + Exponentbyte)</td>
+</tr>
+<tr>
+<td>Zahlvariable</td>
+<td>Name 2 + Wert 5 = 7 Bytes</td>
+<td>Name 2 + Wert 9 = 11 Bytes</td>
+</tr>
+<tr>
+<td>FOR-Eintrag</td>
+<td>19 Bytes</td>
+<td>27 Bytes</td>
+</tr>
+<tr>
+<td>Arbeitsbereich</td>
+<td>ab 6B00h</td>
+<td>ab 6000h</td>
+</tr>
+<tr>
+<td>Programmtext</td>
+<td>ab 725Ch</td>
+<td>ab 68DDh</td>
+</tr>
+<tr>
+<td>Datei in falschem Modus</td>
+<td>Fehler 44</td>
+<td>Fehler 45</td>
+</tr>
+<tr>
+<td>Datei zu groß beim Schreiben</td>
+<td>Fehler 55</td>
+<td>Fehler 53</td>
+</tr>
+<tr>
+<td>Port bei <code>INP@</code>/<code>OUT@</code></td>
+<td><code>EVAL_ADDR</code></td>
+<td><code>EVAL_BYTE</code> (0–255)</td>
+</tr>
+<tr>
+<td>Funktionstastentexte</td>
+<td>Grenze 1201h</td>
+<td>Grenze 1221h</td>
+</tr>
+<tr>
+<td>Ausgabe von Zahlen</td>
+<td>bis 8 Ziffern</td>
+<td>bis 16 Ziffern, Exponentform ab 17 Stellen</td>
+</tr>
+</tbody>
+</table>
+<h2 id="gleich-geblieben">Gleich geblieben</h2>
+<p>Monitor SB-1510 (bis auf <code>IM 1</code>), Bildschirmeditor, Tastatur, Uhr und MUSIC, das Token-Format
+mit allen Token-Nummern, die Interpreterschleife, Strings, das Disketten-Dateisystem
+(BTX/OBJ/BSD/BRD), Kassette, Grafik und der Floppy-Treiber. Diese Teile beschreibt die
+<a href="../../basic-sb6511/doku-basic/index.html">SB-6511-Dokumentation</a> ausführlich; die Namen der Routinen sind
+in beiden Quellen gleich, nur die Adressen unterscheiden sich.</p>
+<footer><div class="pn"><a class="prev" href="index.html">← Überblick</a><a class="next" href="architektur.html">Aufbau und Speicher →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

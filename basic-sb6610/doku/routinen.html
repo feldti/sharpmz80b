@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Routinenverzeichnis – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li class="cur"><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#kern-start-eingabe-tokenizer-zeilenverwaltung-interpreterschleife">Kern: Start, Eingabe, Tokenizer, Zeilenverwaltung, Interpreterschleife</a></li><li><a href="#anweisungen-ausdrucksauswertung-stringfunktionen">Anweisungen, Ausdrucksauswertung, Stringfunktionen</a></li><li><a href="#bcd-arithmetik-und-mathematische-funktionen">BCD-Arithmetik und mathematische Funktionen</a></li><li><a href="#print-input">PRINT / INPUT</a></li><li><a href="#dateibefehle-kassette-diskette">Dateibefehle (Kassette / Diskette)</a></li><li><a href="#drucker-und-print-using">Drucker und PRINT USING</a></li><li><a href="#grafik">Grafik</a></li><li><a href="#floppy-treiber-mb8876">Floppy-Treiber (MB8876)</a></li></ul></aside>
+<h1 id="routinenverzeichnis">Routinenverzeichnis</h1>
+<p>Alle Routinen und Datenbereiche des BASIC-Teils (ab <code>BAS_COLD</code>, 1222h), die in <code>sb6610.asm</code> einen eigenen Kommentarkopf haben, in der Reihenfolge der Quelle. Der Text ist der Kommentar aus der Quelle. Automatisch erzeugt aus <code>sb6610.asm</code> und <code>build/sb6610.sym</code>. 297 Einträge; <em>neu in SB-6610</em> heißt, dass es den Namen in SB-6511 nicht gibt.</p>
+<h2 id="kern-start-eingabe-tokenizer-zeilenverwaltung-interpreterschleife">Kern: Start, Eingabe, Tokenizer, Zeilenverwaltung, Interpreterschleife</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1222h</td>
+<td><code>BAS_COLD</code></td>
+<td>BAS_COLD: Laufwerksnummer des IPL in den Autostart-Befehl &quot;RUN FDn&quot;AUTO RUN&quot;&quot; eintragen, RAM-Ende suchen, Bildschirm, Uhr, Einschaltmeldung, I/O-Init, Autostart.</td>
+</tr>
+<tr>
+<td style="text-align: right;">129Ah</td>
+<td><code>INLINE</code></td>
+<td>INLINE – Eingabezeile nach INBUF holen (DE = INBUF beim Rücksprung). Löscht CURLINE/CURLNUM (Direktmodus). Bei Autostart wird AUTORUN_CMD kopiert; bei AUTO wird die nächste Zeilennummer (AUTO_LINE, danach um AUTO_STEP erhöht) als Vorgabe ausgegeben. Erstes Zeichen 0Bh beendet AUTO. Überlauf der Zeilennummer bei AUTO -&gt; AUTO aus, Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">131Fh</td>
+<td><code>BAS_DIRECT</code></td>
+<td>BAS_DIRECT – Zeile tokenisieren (CRUNCH) und wieder nach INBUF listen (LISTLINE, normalisiert die Anzeige). Ohne Zeilennummer wird sie ab TOKTEXT sofort ausgeführt, mit Nummer über EDITLINE ins Programm übernommen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1368h</td>
+<td><code>EDIT_DEL</code></td>
+<td>EDIT_DEL/EDIT_DELMEM/EDIT_ADJ – Teile der Zeilenverwaltung von BD_EDIT (bei SB-6511 Routine EDITLINE, hier eingebaut): Zeile löschen, Bereiche verschieben, Links korrigieren. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">1379h</td>
+<td><code>PRT_RULE</code></td>
+<td>PRT_RULE – 35 Mal Zeichen 90h ausgeben, dann zwei Zeilenvorschübe.</td>
+</tr>
+<tr>
+<td style="text-align: right;">13F8h</td>
+<td><code>ERRCTX_LINK</code></td>
+<td>ERRCTX_*: bei aktivem ON ERROR vor jeder Anweisung gesicherte Kopie von CURLINE (Link, Zeilennummer) und TXTPTR, siehe ERRCTX_SAVE. ERRCTX_LNUM liefert ERL, ERRCTX_TXT ist der Wiederaufsetzpunkt für RESUME.</td>
+</tr>
+<tr>
+<td style="text-align: right;">153Ah</td>
+<td><code>CONT_CLR</code></td>
+<td>CONT_CLR – CONT sperren (CONT_FLAG = 0).</td>
+</tr>
+<tr>
+<td style="text-align: right;">153Fh</td>
+<td><code>DATA_RESET</code></td>
+<td>DATA_RESET – READ beginnt wieder beim ersten DATA (DATA_FLAG = 0).</td>
+</tr>
+<tr>
+<td style="text-align: right;">155Ah</td>
+<td><code>CR_LOOP</code></td>
+<td>Ablauf von CRUNCH: COPYCHR kopiert Leerzeichen, FFh, Klammern und Strings unverändert. Am ersten anderen Zeichen wird nacheinander gesucht: &quot;?&quot; (= PRINT), KWTAB_STMT (-&gt; 80h,80h+n), Tabelle 17E0h (-&gt; 81h,80h+n), KWTAB_OPS/FUNC/MATH (-&gt; 83h+n). Nach REM/DATA/DEF KEY( (n &lt; 4) wird der Rest bis &quot;:&quot; unverändert kopiert (CR_LITERAL). Zeichen &gt;= 80h außerhalb von Strings: Fehler 1, mehr als 255 Zeichen: Fehler 8.</td>
+</tr>
+<tr>
+<td style="text-align: right;">15A8h</td>
+<td><code>KWSEARCH</code></td>
+<td>KWSEARCH – Schlüsselwort ab (HL) in der Tabelle (DE) suchen, B = 80h. KWSEARCH_B: dasselbe mit Startnummer B. Leerzeichen in Eingabe und Tabelle werden überlesen. Treffer: Z, B = Nummer des Eintrags, HL hinter dem Wort. Kein Treffer: NZ, HL unverändert. Das letzte Zeichen eines Eintrags hat Bit 7 gesetzt, 00h beendet die Tabelle.</td>
+</tr>
+<tr>
+<td style="text-align: right;">15EBh</td>
+<td><code>LL_LOOP</code></td>
+<td>Ablauf von LISTLINE: Zeilennummer + &quot; &quot; nach INBUF, dann Zeichen kopieren (Strings unverändert). Token 83h-FFh: Eintrag Token-83h aus KWTAB_OPS ff.; 80h/81h/82h + n: Eintrag n-80h aus KWTAB_STMT/17E0h/17E2h. Nach REM/DATA/DEF KEY( folgt der Rest bis &quot;:&quot; unverändert.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1635h</td>
+<td><code>KWNTH</code></td>
+<td>KWNTH – B-ten Eintrag (ab 1) der Tabelle HL nach (DE) kopieren, Bit 7 des letzten Zeichens wird gelöscht. C zählt die Ausgabelänge mit.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1656h</td>
+<td><code>ISPASS</code></td>
+<td>ISPASS – Z, wenn A ein Zeichen ist, das CRUNCH/LISTLINE ungeprüft übernimmt: Leerzeichen, FFh, &quot;(&quot; oder &quot;)&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1662h</td>
+<td><code>COPYSTR</code></td>
+<td>COPYSTR – bis einschließlich &#x27;&quot;&#x27; oder 0Dh kopieren (Z bei 0Dh).</td>
+</tr>
+<tr>
+<td style="text-align: right;">166Bh</td>
+<td><code>COPY1</code></td>
+<td>COPY1 – ein Zeichen (HL) -&gt; (DE) kopieren, C zählen (Überlauf: Fehler 8). Z, wenn das Zeichen 0Dh war.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1676h</td>
+<td><code>COPY_TO_COLON</code></td>
+<td>COPY_TO_COLON – kopieren bis &quot;:&quot; oder 0Dh, Strings unverändert.</td>
+</tr>
+<tr>
+<td style="text-align: right;">18BCh</td>
+<td><code>SKIPLINE</code></td>
+<td>SKIPLINE – HL hinter das nächste 0Dh setzen (A bleibt erhalten).</td>
+</tr>
+<tr>
+<td style="text-align: right;">18C6h</td>
+<td><code>SKIPSTMT</code></td>
+<td>SKIPSTMT – HL an das Ende der Anweisung (&quot;:&quot; oder 0Dh) setzen, Strings werden übersprungen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">18D9h</td>
+<td><code>NEGBC</code></td>
+<td>NEGBC – BC = -BC.</td>
+</tr>
+<tr>
+<td style="text-align: right;">18E1h</td>
+<td><code>ISDIGIT</code></td>
+<td>ISDIGIT – Leerzeichen überlesen; C gesetzt, wenn (HL) eine Ziffer ist.</td>
+</tr>
+<tr>
+<td style="text-align: right;">18F0h</td>
+<td><code>JP_INL_POP</code></td>
+<td>Hilfen für Routinen mit Inline-Parametern (Adresse hinter dem CALL): JP_INLINE: zur Inline-Adresse springen (Fehler-/Alternativziel), RET_SKIP2: hinter die Inline-Adresse zurückkehren (Normalfall). Die *_POP-Varianten holen vorher HL vom Stack.</td>
+</tr>
+<tr>
+<td style="text-align: right;">190Dh</td>
+<td><code>CHK_CHR_ALT</code></td>
+<td>CHK_CHR_ALT – Leerzeichen überlesen, (HL) mit dem Inline-Byte vergleichen. Gleich: HL dahinter, zurück hinter das Inline-Wort. Ungleich: Sprung zur Inline-Adresse. _T: ab TXTPTR.</td>
+</tr>
+<tr>
+<td style="text-align: right;">191Bh</td>
+<td><code>SYNCHK</code></td>
+<td>SYNCHK – wie CHK_CHR_ALT, aber ungleich ergibt Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1927h</td>
+<td><code>MUL16</code></td>
+<td>MUL16 – HL = HL * DE (16 Bit, ohne Vorzeichen). Überlauf: Sprung zur Inline-Adresse. MUL16_ERR: Überlauf ergibt Fehler 3.</td>
+</tr>
+<tr>
+<td style="text-align: right;">194Dh</td>
+<td><code>GETLNUM</code></td>
+<td>GETLNUM – Dezimalzahl ab (HL) nach DE, Leerzeichen dazwischen und danach werden überlesen. Überlauf (nur geprüft für den Übertrag des letzten ADD HL,HL) -&gt; Inline-Adresse; sonst läuft die Zahl modulo 65536 über. GETLNUM_SN: Überlauf ergibt Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1974h</td>
+<td><code>NUM2DEC</code></td>
+<td>NUM2DEC – HL als Dezimalzahl ohne führende Nullen nach (DE), davor ein Leerzeichen, danach 0Dh. Zurück: DE zeigt auf das 0Dh. NUM2DEC_C: Ausgabelänge in C mitzählen (für LISTLINE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">19B9h</td>
+<td><code>PRTNUM</code></td>
+<td>PRTNUM – HL dezimal nach 61B3h wandeln, DE zeigt auf den Text (gibt trotz des Namens nichts aus; danach folgt meist PRTSTR/MSGX).</td>
+</tr>
+<tr>
+<td style="text-align: right;">19C2h</td>
+<td><code>MEMFREE</code></td>
+<td>MEMFREE/CHKMEM – HL = SP - 100 - ((VALSP) + BC), also der freie Platz nach Belegung von BC Bytes. Zu wenig: Fehler 6 (Speicher voll).</td>
+</tr>
+<tr>
+<td style="text-align: right;">19DFh</td>
+<td><code>GETLINK</code></td>
+<td>GETLINK – Programmzeile bei HL lesen: HL = Link, DE = Zeilennummer. Z, wenn der Link 0 ist (Programmende).</td>
+</tr>
+<tr>
+<td style="text-align: right;">19EBh</td>
+<td><code>MEMDEL</code></td>
+<td>MEMDEL – BC Bytes ab DE entfernen: alles von DE+BC bis zum Ende des Wertestacks (VALSP+9) rückt nach unten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A00h</td>
+<td><code>MEMINS</code></td>
+<td>MEMINS – BC Bytes Platz ab DE schaffen (Speicher bis VALSP+9 rückt nach oben, CHKMEM prüft vorher). MOVEUP: zusätzlich BC Bytes von HL nach DE kopieren. BLKMOVE: nur kopieren (LDIR, BC = 0 erlaubt).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A28h</td>
+<td><code>FINDLINE</code></td>
+<td>FINDLINE – Zeile HL im Programm suchen. Zurück hinter das Inline-Wort mit HL = Adresse der ersten Zeile mit Nummer &gt;= HL, Z bei Gleichheit. Am Programmende: Sprung zur Inline-Adresse, HL = Endmarke. FINDLINE2 sucht noch einmal mit der zuletzt gesetzten Nummer (Operand von FL_TARGET wird selbst verändert).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A46h</td>
+<td><code>LISTKEY_CMP</code></td>
+<td>LISTKEY_CMP – Wort bei (HL) mit LISTKEY vergleichen (Operand wird selbst verändert, von DIM/Feldzugriff gesetzt). Wort = 0: Listenende, Sprung zur Inline-Adresse. Sonst Flags von CPHLDE, HL += 2.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A62h</td>
+<td><code>LINKS_ADD</code></td>
+<td>LINKS_ADD – ab der Zeile HL zu allen Links BC addieren (nach Einfügen oder Löschen von Programmtext).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A6Ah</td>
+<td><code>LINESIZE</code></td>
+<td>LINESIZE – BC = Länge der Programmzeile bei HL (4 + Text + 0Dh). LEN_CR: BC = Anzahl Zeichen bis vor 0Dh, LEN_CR_BC addiert sie zu BC.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A86h</td>
+<td><code>GETSTR_E</code></td>
+<td>GETSTR_E – Eintrag Nummer E in den String-Zwischenwerten (P_STRTMP) suchen: DE = Text, C = Länge.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1A99h</td>
+<td><code>REQ_STR</code></td>
+<td>REQ_STR – D = 0 (Zahl): Fehler 4 (Typfehler). CHKSTRTYPE ist das Gegenstück: Fehler 4, wenn D &lt;&gt; 0 (String).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1AA4h</td>
+<td><code>VAL_PUT</code></td>
+<td>VAL_PUT – 9 Bytes von HL nach (VALSP) kopieren. VAL_GET – 9 Bytes von (VALSP) nach DE kopieren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1ABCh</td>
+<td><code>CLEARALL</code></td>
+<td>CLEARALL – NEW: leeres Programm, alle Variablen und Zeiger löschen, LIST_LOCK aufheben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1AD2h</td>
+<td><code>CLRPROG</code></td>
+<td>CLRPROG – Programm leeren (00h 00h bei PRGTXT) und die Bereichszeiger 664Eh-6695h (PRGEND, 26 Puffer der Dateiverwaltung ab 6650h - siehe CLEARVARS -, ab 6684h DEF FN, Felder, Variablen, String-Zwischenwerte und VALSP, siehe EQUs P_*) auf leere Bereiche dahinter setzen; jeder Bereich beginnt mit 00h 00h. CLR_AREAS: dasselbe ab dem Zeiger 6684h (für CLR).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1B19h</td>
+<td><code>CLEARVARS</code></td>
+<td>CLEARVARS – Dateitabelle FILETAB (65F2h-664Bh) nullen und die 26 Puffer ab 6650h freigeben (AREA_FREE): 6650h + 2*n Dateipuffer der 10 Tabelleneinträge, ab 6664h Puffer je Einheit, 667Ch-6683h vier weitere.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1B3Bh</td>
+<td><code>MEMINS_ADJ</code></td>
+<td>MEMINS_ADJ – MEMINS und danach ADJ_PTRS. ADJ_PTRS – Bereichszeiger von VALSP abwärts um BC verschieben, solange sie größer als DE sind. MEMDEL_ADJ: MEMDEL und Zeiger um -BC korrigieren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1B6Eh</td>
+<td><code>STRLIT</code></td>
+<td>STRLIT – String ab (HL) lesen: in Anführungszeichen bis &#x27;&quot;&#x27; oder 0Dh, sonst bis &quot;,&quot; oder 0Dh (STRLIT_DE: Endzeichen in D/E). Der Text wird mit STR_NEW als neuer Eintrag im Stringbereich (P_STRTMP) abgelegt. Zurück: D = 1 (String), E = Nummer des Eintrags, BC = Länge.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1BC9h</td>
+<td><code>VAL2UINT</code></td>
+<td>VAL2UINT – Wert bei (VALSP) als ganze Zahl 0-65535 nach DE (Nachkomma- stellen werden abgeschnitten). Negativ oder &gt;= 65536: Sprung zur Inline-Adresse.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1C0Eh</td>
+<td><code>V2U_FAIL</code></td>
+<td>V2U_FAIL – negativ oder zu groß: DE = 0, Sprung zur Inline-Adresse. V2U_MULADD: IX = IX + BCD-Byte (BC) * HL (HL = 10000 bzw. 100). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">1C1Eh</td>
+<td><code>BCD2BIN</code></td>
+<td>BCD2BIN – BCD-Byte (BC) als Zahl 0-99 nach DE, BC + 1. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">1C31h</td>
+<td><code>NUMSTR_EVAL</code></td>
+<td>NUMSTR_EVAL – besteht der Rest der Zeile ab HL nur aus Zeichen einer Zahl (Ziffern, &quot;.&quot;, &quot;+&quot;, &quot;-&quot;, &quot;E&quot;), wird sie mit EVAL ausgewertet und hinter das Inline-Wort zurückgekehrt; sonst (auch bei leerem Rest) Sprung zur Inline-Adresse.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1C53h</td>
+<td><code>NUMCHR</code></td>
+<td>NUMCHR – Z bzw. C, wenn (HL) zu einer Zahl gehören kann.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1C63h</td>
+<td><code>CHK_DIRECT_LK</code></td>
+<td>CHK_DIRECT_LK – wie CHK_DIRECT (nur im Direktmodus), zusätzlich LIST_LOCK prüfen: &lt;&gt; 0 -&gt; zurück nach &quot;Ready&quot; (für LIST und SAVE). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">1C66h</td>
+<td><code>CHK_DIRECT</code></td>
+<td>CHK_DIRECT – nur im Direktmodus erlaubt, CHK_NODIRECT – nur im Programm erlaubt; sonst Fehler 19.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1C88h</td>
+<td><code>RELINK_NEW</code></td>
+<td>RELINK_NEW: ist das Flag gesetzt, ersetzt RELINK das Programm durch ein leeres (PROG_NEW). Gefunden wird nur das Zurücksetzen auf 0 (LOAD).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1C89h</td>
+<td><code>RELINK</code></td>
+<td>RELINK – relative Links (Dateiformat, Satzlänge) in absolute Adressen umrechnen; bereits absolute Links bleiben (Link &gt; Zeilenadresse).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1CA8h</td>
+<td><code>PROG_DEL</code></td>
+<td>PROG_DEL – das ganze Programm entfernen (MEMDEL_ADJ). PROG_NEW – Programm entfernen, Variablen und Zeiger zurücksetzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1CE5h</td>
+<td><code>UNLINK</code></td>
+<td>UNLINK – absolute Links in relative (Satzlänge) umrechnen, vor dem Speichern. Gegenstück zu RELINK.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1D6Fh</td>
+<td><code>JPTAB</code></td>
+<td>JPTAB – Eintrag C der Sprungtabelle HL anspringen (Adresse liegt vorher als Rücksprung auf dem Stack). Auch für FUNC_TAB benutzt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1D79h</td>
+<td><code>ERRCTX_SAVE</code></td>
+<td>ERRCTX_SAVE – im Programmmodus CURLINE, CURLNUM und TXTPTR nach ERRCTX_* sichern (vor jeder Anweisung, solange ONERR_FLAG = 1). ERRCTX_COPY: mit Z die Richtung umkehren (RESUME stellt so zurück).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="anweisungen-ausdrucksauswertung-stringfunktionen">Anweisungen, Ausdrucksauswertung, Stringfunktionen</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1E20h</td>
+<td><code>CHK_EOS</code></td>
+<td>CHK_EOS – Anweisungsende (&quot;:&quot; oder 0Dh) erzwingen, sonst Fehler 1; TXTPTR auf das Ende setzen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1E30h</td>
+<td><code>ST_NEW</code></td>
+<td>NEW – CONT sperren, Programm und Variablen löschen, &quot;Ready&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1E3Bh</td>
+<td><code>ST_LIST</code></td>
+<td>LIST&#91;/P&#93; &#91;a&#93;&#91;-&#91;b&#93;&#93; – Programmzeilen a bis b listen (/P: Drucker). Nur im Direktmodus. Bereich in 61B3h/61B5h (Vorgabe 0-65535). Jede Zeile wird nach TOKLINE kopiert und mit LISTLINE nach INBUF gewandelt. Bildschirm: nach den ersten 10 Zeilen kurze Pause pro Zeile (LIST_DELAY); solange die Taste mit Code FDh an PIO_BD gedrückt ist, wird angehalten; BREAK bricht ab. LIST_DEV: Operand = 1 bei LIST/P (selbstverändernd).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1EF9h</td>
+<td><code>ST_END</code></td>
+<td>END – Programm beenden (CONT_POS mit A=1, CONT möglich). END_PRG: Ende des Programmtextes erreicht. END_SWAP: Operand &lt;&gt; 0, solange ein mit SWAP geladenes Programm läuft; dann geht es bei SWAP_BACK zurück ins aufrufende Programm.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F16h</td>
+<td><code>ST_STOP</code></td>
+<td>STOP – wie END, gibt zusätzlich &quot;*STOP IN zeile&quot; aus.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F37h</td>
+<td><code>ST_RESTORE</code></td>
+<td>RESTORE &#91;zeile&#93; – READ beginnt beim ersten DATA bzw. ab der Zeile.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F4Ah</td>
+<td><code>GOTO_DE</code></td>
+<td>GOTO_DE/GOTO_HL – Zeile DE bzw. HL suchen; fehlt sie: Fehler 16.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F54h</td>
+<td><code>ST_LET</code></td>
+<td>LET var = ausdruck (auch ohne LET). Erst wird hinter dem &quot;=&quot; der Ausdruck ausgewertet, dann die Variable bestimmt und zugewiesen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F7Fh</td>
+<td><code>SAVEPAR0</code></td>
+<td>SAVEPAR0/SAVEPAR1 – BC und DE (Wert bzw. Variable: D = Typ) nach 6000h bzw. 6004h sichern; ASSIGN liest beides.</td>
+</tr>
+<tr>
+<td style="text-align: right;">1F8Fh</td>
+<td><code>ASSIGN</code></td>
+<td>ASSIGN – Wert (6000h) der Variablen (6004h) zuweisen. Typen ungleich: Sprung zur Inline-Adresse. Zahl: 9 Bytes kopieren. String: Platz der Variablen an die neue Länge anpassen und Text kopieren. Variable TI$ (TI_STR): Wert &quot;hhmmss&quot; prüfen und die Uhr stellen (ASG_TI).</td>
+</tr>
+<tr>
+<td style="text-align: right;">1FDFh</td>
+<td><code>TI_STR</code></td>
+<td>TI_STR: Puffer für TI$ (&quot;hh&quot;, &quot;mm&quot;, &quot;ss&quot; je mit 0Dh).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2053h</td>
+<td><code>EVAL_INT</code></td>
+<td>EVAL_INT – Ausdruck auswerten, als ganze Zahl 0-65535 nach DE (sonst Fehler 3, String: Fehler 4). Der Wertestack bleibt unverändert. EVAL_BYTE – dasselbe, Wert 0-255.</td>
+</tr>
+<tr>
+<td style="text-align: right;">207Bh</td>
+<td><code>ST_RUN</code></td>
+<td>RUN &#91;zeile&#93; / RUN &quot;datei&quot; – SWAP-/Lade-Zustände zurücksetzen, READ und CONT zurücksetzen. Mit Zeilennummer: Start dort (über GOTO, Variablen bleiben); ohne Argument: Variablen löschen und von vorn; sonst Datei laden und starten (RUN_LOAD -&gt; LOAD_FD).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2096h</td>
+<td><code>ST_GOTO</code></td>
+<td>GOTO zeile – auch Ziel von THEN zeile, ON ... GOTO und RESUME zeile.</td>
+</tr>
+<tr>
+<td style="text-align: right;">20C3h</td>
+<td><code>ST_GOSUB</code></td>
+<td>GOSUB zeile – CURLINE, TXTPTR und FOR_CNT (7 Bytes) auf den GOSUB-Stack, FOR_CNT = 0 für die neue Ebene. Mehr als 15 Ebenen: Fehler 10.</td>
+</tr>
+<tr>
+<td style="text-align: right;">20F4h</td>
+<td><code>ST_RETURN</code></td>
+<td>RETURN – FOR-Einträge der aktuellen Ebene verwerfen, dann CURLINE, TXTPTR und FOR_CNT vom GOSUB-Stack holen. Ohne GOSUB: Fehler 14.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2127h</td>
+<td><code>ST_FOR</code></td>
+<td>FOR var = a TO b &#91;STEP c&#93; – Eintrag in FOR_VAR..FOR_LIMIT aufbauen (STEP fehlt: 1), einen vorhandenen Eintrag derselben Variablen samt allen jüngeren entfernen und 27 Bytes auf den FOR-Stack legen. Mehr als 15 Einträge: Fehler 11.</td>
+</tr>
+<tr>
+<td style="text-align: right;">21BDh</td>
+<td><code>ST_NEXT</code></td>
+<td>NEXT &#91;var&#91;,var...&#93;&#93; – passenden FOR-Eintrag suchen (jüngere werden verworfen; keiner: Fehler 13), Schrittweite addieren und je nach Vorzeichen mit dem Endwert vergleichen. Weiter: CURLINE/TXTPTR aus dem Eintrag holen; fertig: Eintrag entfernen, nächste Variable nach &quot;,&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">223Bh</td>
+<td><code>ST_ON</code></td>
+<td>ON ausdruck GOTO/GOSUB z1,z2,... (ON SRQ gibt es in SB-6610 nicht). Wert 0 oder &gt; 255: Rest der Anweisung überspringen; gibt es weniger Ziele als der Wert, geht es mit der nächsten Anweisung weiter.</td>
+</tr>
+<tr>
+<td style="text-align: right;">227Dh</td>
+<td><code>ST_ONERR</code></td>
+<td>ON ERROR GOTO zeile – Behandler setzen (ONERR_FLAG = 1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">228Fh</td>
+<td><code>ST_RESUME</code></td>
+<td>RESUME &#91;NEXT &#124; zeile &#124; 0&#93; – nur im Fehlerbehandler (ONERR_FLAG = 2), sonst Fehler 21. Ohne Argument: fehlerhafte Anweisung wiederholen (ERRCTX zurückholen); NEXT: dahinter weiter; zeile: dort weiter; 0: ON ERROR abschalten und wie RUN neu starten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">22E2h</td>
+<td><code>ST_DIM</code></td>
+<td>DIM name&#91;$&#93;(n&#91;,m&#93;)&#91;,...&#93; – höchstens zwei Dimensionen; n bei eindimensionalen Feldern auch über 255, sonst je 0-255. Ein schon vorhandenes Feld wird übergangen (passen die neuen Grenzen nicht hinein: Fehler 3). Eintrag: Name (2), Dimensionen (2), dann (n+1)*(m+1) Elemente: Zahlen 9 Bytes (0), Strings 2 Bytes (Länge 0, 0Dh).</td>
+</tr>
+<tr>
+<td style="text-align: right;">236Dh</td>
+<td><code>ARR_TXTP</code></td>
+<td>ARR_*: Arbeitswerte von ARR_FIND – Textzeiger hinter &quot;)&quot;, Typ (0 Zahl, 1 String) und Indizes (E = erster, D = zweiter).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2372h</td>
+<td><code>ARR_FIND</code></td>
+<td>ARR_FIND – nach &quot;(&quot; Indizes lesen und Feld suchen (Name in DE, B = Typ). Liste nach Typ und Dimensionszahl aus P_ARRAYS. Nicht gefunden: A = 0, Z. Gefunden: Indizes gegen die Dimensionen prüfen (zu groß: Fehler 3), NZ, HL hinter den Dimensionen. Der erste Index darf in SB-6610 bis 65535 gehen (EVAL_INT statt EVAL_BYTE), der zweite bis 255 (ARR_DIM2CHK).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2411h</td>
+<td><code>ST_POKE</code></td>
+<td>POKE adresse, wert – Adresse auch als $hex (EVAL_ADDR), Wert 0-255.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2426h</td>
+<td><code>ST_CLR</code></td>
+<td>CLR – Variablen, Felder, DEF FN und Strings löschen (CLR_AREAS).</td>
+</tr>
+<tr>
+<td style="text-align: right;">242Dh</td>
+<td><code>ST_IF</code></td>
+<td>IF bedingung THEN zeile &#124; THEN anweisung &#124; GOTO zeile &#124; GOSUB zeile IF EOF(#n) ... – Sonderform für Dateien (GETFILENO/FTAB_FIND, Fehler 44). Bedingung = 0: Rest der Zeile überspringen (IF_FALSE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2481h</td>
+<td><code>ST_DEFFN</code></td>
+<td>DEF FNx(y) = ausdruck – x, y je ein Buchstabe. Der Text hinter &quot;=&quot; wird in die Liste P_DEFFN kopiert (Eintrag: x, y, Text, 0Dh); eine vorhandene Definition wird ersetzt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">24E9h</td>
+<td><code>ST_MUSIC</code></td>
+<td>MUSIC s1&#91;,s2...&#93; – Strings nacheinander mit MUSIC_PLAY spielen; BREAK bricht ab.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2502h</td>
+<td><code>ST_TEMPO</code></td>
+<td>TEMPO n – n = 1-7, sonst Fehler 3.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2513h</td>
+<td><code>EVAL_EXPR</code></td>
+<td>Ausdrucksauswertung (Rangfolge von unten nach oben): EVAL_EXPR  Vergleiche (Token 83h-8Bh, &quot;=&quot; -&gt; 89h); Strings über STRCMP EVAL       + und - (Strings: + verkettet, &gt; 255 Zeichen: Fehler 5) TERM       * und / POWER      ^ PRIMARY    Vorzeichen, Zahl, Variable, FN, &quot;(&quot;, String, Funktion, Pi Ergebnis: D = 0 Zahl (Wert bei (VALSP), 9 Bytes), D &lt;&gt; 0 String (E = Nummer, siehe GETSTR). A = nächstes Zeichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2585h</td>
+<td><code>STRCMP</code></td>
+<td>STRCMP – Strings (HL, Länge C) und (DE, Länge B) vergleichen. Liefert die Flags für die Tabelle STRCMP_TAB (Einträge wie FUNC_TAB 0-8).</td>
+</tr>
+<tr>
+<td style="text-align: right;">263Bh</td>
+<td><code>APPLY_OP</code></td>
+<td>APPLY_OP – Operator A (Index in FUNC_TAB) anwenden. Linker Wert liegt auf dem Wertestack (VALSP wird um 9 erhöht), DE = Routine für den rechten Operanden, BC = Fortsetzung danach. Beide müssen Zahlen sein (sonst Fehler 4). TERM_NEXT/POWER_NEXT sind solche Fortsetzungen: INC HL überspringt das Operatorzeichen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2685h</td>
+<td><code>PRIMARY</code></td>
+<td>PRIMARY – ein Operand mit Vorzeichen. Zeichen FFh steht für Pi. Funktions-Token: A0h-B3h über FUNC_TAB ab Eintrag 17 (Argumente liest die Funktion selbst), C0h-CBh über D2975 (Argument wird vorher ausgewertet).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2693h</td>
+<td><code>NEG_VAL</code></td>
+<td>NEG_VAL – Wert bei (VALSP) negieren (Bit 7 des Exponentbytes, 0 bleibt).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2748h</td>
+<td><code>NUMVAR</code></td>
+<td>NUMVAR – Zahlvariable DE (Name) in P_NUMVAR suchen, fehlt sie, wird sie mit Wert 0 angelegt. Zurück: DE = Adresse des Werts, B = 0, C = 5.</td>
+</tr>
+<tr>
+<td style="text-align: right;">277Bh</td>
+<td><code>FN_CALL</code></td>
+<td>FN_CALL – FNx(ausdruck): Definition in P_DEFFN suchen (fehlt: Fehler 15), Parametervariable y sichern (FNPAR_SP, 6 Bytes, max. 5 Ebenen, sonst Fehler 12), mit dem Argument belegen, Text auswerten, y zurückholen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">27FAh</td>
+<td><code>STRVAR</code></td>
+<td>STRVAR – Stringvariable DE in P_STRVAR suchen bzw. leer anlegen (LK2_NEW). TI$ wird gesondert aus der Uhr gelesen (TI_READ). Zurück: B = 1 (String), C = Länge, DE = Text.</td>
+</tr>
+<tr>
+<td style="text-align: right;">283Dh</td>
+<td><code>TI_READ</code></td>
+<td>TI_READ – Uhr lesen (TIMER_GET: HL = Sekunden, A &lt;&gt; 0 nachmittags) und als &quot;hh&quot; &quot;mm&quot; &quot;ss&quot; (24 Stunden) nach TI_STR schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2884h</td>
+<td><code>ARR_STRELEM</code></td>
+<td>ARR_STRELEM/ARR_NUMELEM – Feldelement name(i&#91;,j&#93;) bestimmen. Das Feld muss mit DIM angelegt sein, sonst Fehler 3. Zahl: Adresse des Werts; String: Eintrag über die Längenbytes abzählen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">28DAh</td>
+<td><code>GETNAME</code></td>
+<td>GETNAME – Variablennamen ab HL lesen: Buchstabe, optional Buchstabe oder Ziffer (E, D; D = 20h bei einem Zeichen). Weitere Buchstaben und Ziffern werden überlesen, nur zwei Zeichen zählen. C, wenn gültig. Sonderfall &quot;FN&quot;: HL hinter FN. GETNAME_SN – dasselbe, &quot;FN&quot; oder kein Name: Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">298Dh</td>
+<td><code>FN_LEFT</code></td>
+<td>LEFT$(s,n), RIGHT$(s,n), MID$(s,p,n) – schneiden den String auf dem Wertestack zu (STR_CUT). Bei MID$ darf statt n ein &quot;-&quot; stehen: dann bleibt der Rest ab p. p = 0: Fehler 3.</td>
+</tr>
+<tr>
+<td style="text-align: right;">29FFh</td>
+<td><code>FN_LEN</code></td>
+<td>LEN(s), CHR$(n), STR$(x), VAL(s), ASC(s), PEEK(adr): wie üblich. VAL eines leeren oder nicht numerischen Strings ergibt 0 (STR_ZERO). ASC(&quot;&quot;) ergibt Fehler 3. PEEK und CHR$ nehmen Adresse/Wert auch als $hex.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2A68h</td>
+<td><code>BYTE2VAL</code></td>
+<td>BYTE2VAL – A (0-255) als ganze Zahl (E = 40h) nach (VALSP). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2A8Ah</td>
+<td><code>FN_TAB</code></td>
+<td>TAB( ist nur in PRINT erlaubt; als Funktion: Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2A98h</td>
+<td><code>STR_FILL</code></td>
+<td>STR_FILL – neuen String mit C Zeichen A anlegen (SPACE$, STRING$, CHR$).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2ACAh</td>
+<td><code>FN_POINT</code></td>
+<td>POINT(x,y) – x 0-319, y 0-199, sonst Fehler 3; Ergebnis von GR_POINT.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2AF4h</td>
+<td><code>FN_SIZE</code></td>
+<td>SIZE – freier Speicher. ERL, ERN – Fehlerzeile bzw. -nummer, außerhalb des Fehlerbehandlers 0.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2AF8h</td>
+<td><code>INT_RET</code></td>
+<td>INT_RET – DE (0-65535) als Zahl zurückgeben (über PRTNUM/EVAL); auch für ERL/ERN (ERR_VALRET: 0 außerhalb des Fehlerbehandlers). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2B21h</td>
+<td><code>ST_CURSOR</code></td>
+<td>CURSOR x, y – x kleiner als die Zeilenbreite (Operand von ADD_WIDTH), y 0-24, sonst Fehler 3.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2B4Bh</td>
+<td><code>GET_LASTKEY</code></td>
+<td>GET_LASTKEY: Byte +1 = zuletzt von GET gelesene Taste (neu in SB-6610: eine gehaltene Taste liefert nur einmal ein Zeichen, danach &quot;&quot; bzw. 0) <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2B4Dh</td>
+<td><code>ST_GET</code></td>
+<td>GET var – Taste ohne Warten lesen (INKEY). String: das Zeichen oder &quot;&quot;; Zahl: Ziffernwert, sonst 0.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2B93h</td>
+<td><code>ST_USR</code></td>
+<td>USR(adresse &#91;, var$&#93;) – Maschinenprogramm aufrufen, zurück über NEXTSTMT (liegt als Rücksprung auf dem Stack). Mit var$ liefert GETVAR deren Angaben in BC/DE (B = 0); eine Zahlvariable ergibt Fehler 4.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2BB8h</td>
+<td><code>ST_LIMIT</code></td>
+<td>LIMIT MAX &#124; adresse – Obergrenze des BASIC-Speichers setzen (STKTOP und SP). Über MEMTOP: Fehler 3; zu nah am belegten Speicher (&lt; 200 Bytes): Fehler 18.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2BF0h</td>
+<td><code>EVAL_ADDR</code></td>
+<td>EVAL_ADDR – Adresse lesen: &quot;$&quot; + bis zu 4 Hexziffern (mehr: Fehler 3) oder sonst ein Ausdruck (EVAL_INT).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C1Fh</td>
+<td><code>ST_CONT</code></td>
+<td>CONT – nur im Direktmodus, ohne gesicherte Stelle Fehler 17. CONT_FLAG: 1 = nach STOP/END (weiter mit der nächsten Anweisung), 2 = nach BREAK (Anweisung wiederholen), negativ = aus INPUT (IN_MORE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C4Fh</td>
+<td><code>ST_INPAT</code></td>
+<td>INP@ port, var – Port lesen (Portnummer wird in den IN-Befehl geschrieben).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C6Ah</td>
+<td><code>ST_OUTAT</code></td>
+<td>OUT@ port, wert – unteres Byte des Werts an den Port ausgeben (Portnummer wird in den OUT-Befehl geschrieben).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2C7Dh</td>
+<td><code>ST_AUTO</code></td>
+<td>AUTO &#91;start&#93;&#91;,schritt&#93; – nur im Direktmodus, Vorgabe je 10, 0: Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2CD1h</td>
+<td><code>AUTO_FLAG</code></td>
+<td>AUTO: AUTO_FLAG &lt;&gt; 0 = aktiv, AUTO_LINE = nächste Zeilennummer, AUTO_STEP = Schrittweite (Vorgabe je 10).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2CD6h</td>
+<td><code>ST_DEFKEY</code></td>
+<td>DEF KEY(n) = text – Funktionstaste n = 1-10 belegen. Tabelle FKEY_TAB (je Text bis 0Dh), Ende in FKEY_END, Grenze FKEY_LIMIT (voll: Fehler 1). Der Text reicht bis zum Zeilenende; &quot;!&quot; wird als &quot;:&quot; gespeichert. Ab dem ersten &quot;:&quot; wird der Rest der Programmzeile mit Leerzeichen überschrieben, damit er nicht ausgeführt wird. DEFKEY_SYNCHK: wie SYNCHK, Fehler stellt vorher die Tabelle wieder her.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2D8Bh</td>
+<td><code>ST_KLIST</code></td>
+<td>KLIST – Belegung der Funktionstasten 1-10 ausgeben (nur Direktmodus).</td>
+</tr>
+<tr>
+<td style="text-align: right;">2DC7h</td>
+<td><code>ST_CHANGE</code></td>
+<td>CHANGE – Groß-/Kleinschreibung der Buchstabentasten umschalten: Bit 5 in je 26 Einträgen der Tastaturtabellen KEYTAB_N_AZ/KEYTAB_S_AZ setzen bzw. löschen, Zustand in CHANGE_FLAG.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="bcd-arithmetik-und-mathematische-funktionen">BCD-Arithmetik und mathematische Funktionen</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">2DEDh</td>
+<td><code>FPA_FLAG</code></td>
+<td>Zahlformat (9 Bytes): Byte 0-7  Mantisse M, 16 BCD-Ziffern, höchstwertige zuerst Byte 8    Exponentbyte: Bit 7 = Vorzeichen (1 = negativ), Bits 6-0 = E; Wert = M * 10^(E-40h) Ganze Zahlen bis 16 Stellen stehen unnormiert mit E = 40h (1 = 00 .. 01 40), sonst normiert mit führender Ziffer &lt;&gt; 0 (0,5 = 50 00 .. 30). Null: alle 9 Bytes 00h. Größter Betrag FP_MAX = 9999999999999999 * 10^3Fh. Die Routinen bekommen meist Zeiger auf das Exponentbyte (Byte 8); die Mantisse liegt in den 8 Bytes darunter. Grundrechenarten: (DE) = (DE) op (HL). Nach jeder Rechnung bringt FP_INTFORM ganzzahlige Ergebnisse wieder auf E = 40h. Überlauf: FP_MAX mit Vorzeichen, Fehler 2; Unterlauf: 0. ^, SIN, COS, TAN, ATN, EXP, LOG und LN gibt es in SB-6610 nicht (Fehler 1); laut Handbuch (2.4.4) stehen BASIC-Unterprogramme dafür in der Datei &quot;FUNCTION&quot; der Systemdiskette. Zahlenbereich laut Handbuch 1E-48 bis 9.999999999999999E+78.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2DF5h</td>
+<td><code>NUMBUF</code></td>
+<td>FP_TMP1/FP_TMP2: normierte Kopien der Operanden (FP_NORMCOPY), bei SQR Radikand bzw. Rest. NUMBUF: Ausgabetext von NUM2STR (Vorzeichen, Ziffern, Punkt, E+nn, 0Dh) überlagert beide. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2E07h</td>
+<td><code>FP_DIG</code></td>
+<td>FP_DIG: Ziffernpuffer. MUL: 32-stelliges Produkt gepackt (FP_DIG+1 .. +16); DIV und SQR: eine Ziffer je Byte; NUM2STR: entpackte Mantisse als ASCII-Ziffern. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2E1Ch</td>
+<td><code>FP_ONE</code></td>
+<td>Konstanten, 9 Bytes: Mantisse (16 BCD-Ziffern, höchstwertige zuerst), dann Exponentbyte. FP_ZERO und FP_MONE überlappen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2E42h</td>
+<td><code>FP_NORM</code></td>
+<td>FP_NORM – (HL) normieren (HL zeigt auf das Exponentbyte): führende Null-Bytes und eine führende Null-Ziffer herausschieben, E entsprechend verkleinern. Mantisse 0: Exponent 0, Z gesetzt. Unterlauf (E &lt; 1): FP_SETZERO. Sonst NZ. Die Schiebeweite steht über selbstverändernden Code in FPN_MOVCNT..FPN_EXPMIN.</td>
+</tr>
+<tr>
+<td style="text-align: right;">2EB1h</td>
+<td><code>FP_NORMCOPY</code></td>
+<td>FP_NORMCOPY – beide Operanden normiert kopieren: (HL) nach FP_TMP1, (DE) nach FP_TMP2 (Zeiger jeweils auf das Exponentbyte). Ergebnis: DE -&gt; FP_TMP1+8 (Kopie von HL), HL -&gt; FP_TMP2+8 (Kopie von DE). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2ED1h</td>
+<td><code>FP_SHR1</code></td>
+<td>FP_SHR1 – Mantisse von (HL) um eine Ziffer nach rechts, E + 1. A = herausgeschobene Ziffer, CY = 1 wenn sie &gt;= 5 ist (aufrunden). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2EE2h</td>
+<td><code>FSRN_BYTES</code></td>
+<td>FSRN_BYTES – Teil von FP_SHRN: Mantisse um ganze Bytes nach rechts (Weite über selbstverändernden Code), CY = 1 wenn das letzte herausgeschobene Byte &gt;= 50h ist. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2F03h</td>
+<td><code>FP_SHRN</code></td>
+<td>FP_SHRN – Mantisse von (HL) um A Ziffern nach rechts, E + A (A &gt;= 16: Wert 0). Ungerade Weite zuerst eine Ziffer mit FP_SHR1, dann ganze Bytes mit FSRN_BYTES. CY: aufrunden. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2F30h</td>
+<td><code>MANT_INCNC</code></td>
+<td>MANT_INCNC – Mantisse unterhalb von HL um 1 - CY erhöhen (Rundung mit umgekehrtem Übertrag); Überlauf der Mantisse über MANT_CARRY. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2F41h</td>
+<td><code>MANT_INC</code></td>
+<td>MANT_INC – Mantisse unterhalb von HL um 1 erhöhen (BCD); der Übertrag läuft so weit nach oben wie nötig. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2F4Ch</td>
+<td><code>FP_INTFORM</code></td>
+<td>FP_INTFORM – (DE) in Ganzzahlform bringen: Ist der Wert ganz (alle Ziffern hinter dem Komma 0) und passt er in 16 Stellen, wird die Mantisse nach rechts geschoben, bis E = 40h ist. Sonst bleibt (DE) unverändert. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2F76h</td>
+<td><code>MANT_ADD</code></td>
+<td>MANT_ADD – Mantissen addieren: (BC) = (DE) + (HL), 8 Bytes BCD (alle Zeiger auf das Exponentbyte). Übertrag aus der höchsten Stelle: MANT_CARRY. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2F8Ch</td>
+<td><code>MANT_CARRY</code></td>
+<td>MANT_CARRY – Übertrag aus der Mantisse (HL): E = 7Fh -&gt; Überlauf (FP_OVERFLOW); sonst eine Ziffer nach rechts (E + 1, runden) und die übergelaufene 1 als führende Ziffer einsetzen. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2FA6h</td>
+<td><code>MANT_SUB</code></td>
+<td>MANT_SUB – Mantissen subtrahieren: (BC) = (HL) - (DE) (Zeiger vor dem Tausch), 8 Bytes BCD. CY = 1: Ergebnis negativ (Zehnerkomplement). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2FBBh</td>
+<td><code>MD_EXPCHK</code></td>
+<td>MD_EXPCHK – Exponent des Produkts/Quotienten außerhalb des Bereichs: knapp darunter (ab F2h) noch runden (MD_ROUNDHL), sonst Überlauf. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2FC1h</td>
+<td><code>FP_OVERFLOW</code></td>
+<td>FP_OVERFLOW – Überlauf: (DE) = FP_MAX mit dem Vorzeichen von (DE), dann Fehler 2. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2FD2h</td>
+<td><code>FP_SETZERO</code></td>
+<td>FP_SETZERO – (HL) = 0: die 9 Bytes unterhalb und einschließlich HL löschen. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">2FDCh</td>
+<td><code>ADD_ALIGN</code></td>
+<td>ADD_ALIGN – Teil von OP_ADD/OP_SUB: A = Exponentdifferenz. Ab 20h bestimmt der größere Operand allein das Ergebnis (ALN_TAKEBIG: kopieren, eine Rücksprungebene überspringen). Sonst den kleineren Operanden um A Ziffern nach rechts schieben (ALN_SMALL), bei E = 40h vorher normieren.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3034h</td>
+<td><code>OP_ADD</code></td>
+<td>OP_ADD – (DE) = (DE) + (HL), Zeiger auf die Exponentbytes. Gleiche Vorzeichen: ADD_MAG, verschiedene: SUB_MAG. Der rechte Operand kann dabei verändert (verschoben) werden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">303Bh</td>
+<td><code>ADD_MAG</code></td>
+<td>ADD_MAG – Beträge addieren (gleiche Vorzeichen bei +, verschiedene bei -). Beide ganzzahlig (E = 40h): direkt MANT_ADD. Sonst den kleineren an den größeren Exponenten angleichen (ADD_ALIGN), addieren, FP_INTFORM. OPA_x/OPS_x schreiben NOP bzw. CPL nach ASW_SIGN: so bekommt das Ergebnis beim Tausch der Operanden das richtige Vorzeichen. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">306Fh</td>
+<td><code>OP_SUB</code></td>
+<td>OP_SUB – (DE) = (DE) - (HL), Zeiger auf die Exponentbytes. Wie OP_ADD, nur umgekehrt: verschiedene Vorzeichen -&gt; ADD_MAG, gleiche -&gt; SUB_MAG.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3077h</td>
+<td><code>SUB_MAG</code></td>
+<td>SUB_MAG – Beträge subtrahieren: angleichen, MANT_SUB; bei negativem Ergebnis Zehnerkomplement (99h - Byte, +1) und Vorzeichen umdrehen. Ergebnis 0 mit E = 40h wird zu echter 0, sonst FP_NORM und FP_INTFORM. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">30CFh</td>
+<td><code>ADD_SWAP</code></td>
+<td>ADD_SWAP – Operanden tauschen (größerer Exponent nach vorn), Differenz negieren; ASW_SIGN ist NOP oder CPL (von OP_ADD/OP_SUB gesetzt) und dreht bei der Subtraktion das Vorzeichen. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">30DBh</td>
+<td><code>OP_MUL</code></td>
+<td>OP_MUL / OP_DIV – (DE) = (DE) * (HL) bzw. (DE) / (HL) über MULDIV (CY = 0: Multiplikation, CY = 1: Division).</td>
+</tr>
+<tr>
+<td style="text-align: right;">30DFh</td>
+<td><code>MULDIV</code></td>
+<td>MULDIV – gemeinsamer Teil von OP_MUL/OP_DIV. Ist (HL) 0: bei MUL 0, bei DIV Fehler 2 (Division durch 0); ist (DE) 0: Ergebnis 0. Beide Operanden normiert kopieren (FP_NORMCOPY), Exponent und Vorzeichen nach FPR_EXP (Bereich prüfen: Unterlauf 0, Überlauf Fehler 2). DIV: Quotient Ziffer für Ziffer durch fortgesetztes Subtrahieren (DIV_DIGIT ... DIV_SHIFT), Ziffern nach FP_DIG. MUL: Teilprodukte Byte mal Byte (MUL_START ... MUL_ACC) über DAA in FP_DIG aufsummieren. MD_PACK packt FP_DIG in das Ergebnis, MD_FINISH rundet und bringt es in Ganzzahlform. Die 7 Bytes vor DIV_NEXTDIG (LD HL,FPR_EXP / INC (HL) / EXX / JR DIV_DIGIT) werden nicht angesprungen. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">31ABh</td>
+<td><code>MD_PACK</code></td>
+<td>MD_PACK – 16 Ziffern aus FP_DIG (DE zeigt hinter die letzte) gepackt in das Ergebnis (Adresse auf dem Stack) schreiben, FPR_EXP als Exponent; A&#x27; = nächste Ziffer (Rundung in MD_FINISH). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">321Dh</td>
+<td><code>MD_FINISH</code></td>
+<td>MD_FINISH – runden (MANT_INCNC, CY aus CP 05h bzw. 50h) und FP_INTFORM. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">329Dh</td>
+<td><code>FP_ISZERO</code></td>
+<td>FP_ISZERO – Z, wenn (HL) Null ist: Exponent 0 oder 40h und Mantisse 0. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">32B1h</td>
+<td><code>FP_PTREXP</code></td>
+<td>FP_PTREXP – HL und DE um 8 erhöhen (vom Anfang auf das Exponentbyte). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">32B9h</td>
+<td><code>QS_PTRS</code></td>
+<td>QS_PTRS/QS_PTRS2 – Hilfen für die Subtraktionsschleifen von DIV und SQR: DE = FPR_PTR (nur QS_PTRS), HL = FP_TMP2+8, B = C, A = 0, CY = 0. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">32C3h</td>
+<td><code>FN_SQR</code></td>
+<td>FN_SQR – SQR(x): negativ Fehler 3, 0 bleibt 0. Wurzel Ziffer für Ziffer wie beim schriftlichen Wurzelziehen: Radikand nach FP_TMP1 (bei ungeradem Exponent eine Ziffer nach rechts), Exponent halbieren; die erste Ziffer über die Summe der ungeraden Zahlen, jede weitere durch fortgesetztes Subtrahieren von (20 * bisherige Wurzel + Ziffer) * Ziffer (SQR_SQUARES). Bis 17 Ziffern in FP_DIG, dann MD_PACK.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3410h</td>
+<td><code>SQR_SQUARES</code></td>
+<td>SQR_SQUARES: Quadrate 0-9 in BCD (für die Wurzelziffern) <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">341Ah</td>
+<td><code>FN_ABS</code></td>
+<td>ABS(x) löscht das Vorzeichenbit, SGN(x) liefert -1, 0 oder 1 (Konstanten FP_MONE/FP_ZERO/FP_ONE über PUT_CONST).</td>
+</tr>
+<tr>
+<td style="text-align: right;">342Fh</td>
+<td><code>OP_NE2</code></td>
+<td>Vergleichsoperatoren: (DE) = -1 (wahr, SET_TRUE) oder 0 (falsch, SET_FALSE), über FP_CMP; OP_LT/OP_GE2 tauschen die Operanden.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3435h</td>
+<td><code>SET_TRUE</code></td>
+<td>SET_TRUE/SET_FALSE – Ergebnis -1 bzw. 0 nach (DE) (Adresse auf dem Stack); PUT_CONST: Konstante ab HL (Exponentbyte) dorthin; COPY_VAL9: 9 Bytes von (HL) abwärts nach (DE). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">3464h</td>
+<td><code>FP_CMP</code></td>
+<td>FP_CMP – (DE) mit (HL) vergleichen (Zeiger auf die Exponentbytes): Z = gleich, CY = (DE) &gt; (HL). Gleicher Exponent 40h: nur die Mantissen vergleichen; sonst normierte Kopien (FP_NORMCOPY), erst Vorzeichen und Exponent, dann die Mantisse byteweise.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3498h</td>
+<td><code>FN_RND</code></td>
+<td>FN_RND – RND(x): x = 0 setzt den Startwert RND_X auf RND_INIT zurück. Immer RND_X = RND_X * 23 (RND_MUL); bei x &lt; 0 kommt zusätzlich die Uhr (TIMER_GET, über BYTE2BCD) dazu. Vom Ergebnis bleiben die Nachkommastellen (Vorkommastellen werden gelöscht), normiert ist das die Zufallszahl.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3508h</td>
+<td><code>RND_X</code></td>
+<td>RND_X: aktueller Startwert (0.2029882764533591), RND_MUL: Faktor 23, RND_INIT: Startwert nach RND(0) <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">3524h</td>
+<td><code>BYTE2BCD</code></td>
+<td>BYTE2BCD – A (0-255) als BCD nach BC (Summe der Zweierpotenzen aus POW2_BCD für jedes gesetzte Bit). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">353Fh</td>
+<td><code>POW2_BCD</code></td>
+<td>POW2_BCD: 2^0 .. 2^7 als 16-Bit-BCD (Low-Byte zuerst) <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">354Fh</td>
+<td><code>FN_INT</code></td>
+<td>FN_INT – INT(x): größte ganze Zahl &lt;= x. Ziffern hinter dem Komma löschen; bei negativem x mit Rest 1 abziehen (OP_SUB mit FP_ONE_N), sonst INT_FINISH.</td>
+</tr>
+<tr>
+<td style="text-align: right;">358Ah</td>
+<td><code>FP_ONE_N</code></td>
+<td>FP_ONE_N: 1 in normierter Form (0.1 * 10^1), für INT negativer Zahlen <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">3593h</td>
+<td><code>STR2NUM</code></td>
+<td>STR2NUM – Zahl im Text ab HL nach (DE) wandeln, DE zeigt auf das Exponentbyte des Ziels; gearbeitet wird mit dem Zweitregistersatz. Ziffern werden mit S2N_PUTDIG von rechts in die Mantisse geschoben (Leerzeichen überlesen, führende Nullen übergangen, ab der 17. Ziffer nur noch gerundet), &quot;.&quot; und &quot;E&#91;+&#124;-&#93;nn&quot; setzen den Exponenten. Ohne Ziffer Fehler 1, zu groß Fehler 2, zu klein 0. Ergebnis normiert bzw. in Ganzzahlform (FP_INTFORM).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3691h</td>
+<td><code>IS_DIGIT</code></td>
+<td>IS_DIGIT – CY, wenn A eine Ziffer &quot;0&quot;-&quot;9&quot; ist. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">36A0h</td>
+<td><code>S2N_PUTDIG</code></td>
+<td>S2N_PUTDIG – Ziffer A (&quot;0&quot;-&quot;9&quot;) von rechts in die Mantisse unter HL schieben (RLD über 8 Bytes). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">36B0h</td>
+<td><code>S2N_NEXTCH</code></td>
+<td>S2N_NEXTCH – nächstes Zeichen aus dem Text (HL&#x27;), Leerzeichen überlesen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">36B9h</td>
+<td><code>NUM2STR</code></td>
+<td>NUM2STR – Zahl (HL, Zeiger auf Byte 0) als Text nach NUMBUF: Vorzeichen (&quot; &quot; oder &quot;-&quot;), Ziffern, ggf. Punkt; außerhalb von 16 Stellen bzw. sehr klein mit Exponent (&quot;E+nn&quot;/&quot;E-nn&quot;). Die Mantisse wird dazu nach FP_DIG entpackt (eine Ziffer je Byte, ASCII), Nullen am Anfang und Ende übergangen. Am Ende kopiert L5350 den Text ins Ziel (DE beim Aufruf) bzw. formatiert ihn für PRINT USING; A = 0, 1 (mit Exponent) oder 2 (ganze Zahl) sagt L5350, welche Form vorliegt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">37C5h</td>
+<td><code>N2S_END0</code></td>
+<td>N2S_END0/N2S_END – Textende 0Dh, dann L5350 mit A = Form (siehe NUM2STR). Byte-Trick: &quot;LD A,01h / DEFB 01h&quot; verschluckt &quot;LD A,00h&quot;; N2S_END+1 ist &quot;LD A,02h&quot; (aus dem Operanden von LD BC,023Eh). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">37D1h</td>
+<td><code>PUT_ZERO</code></td>
+<td>PUT_ZERO/PUT_DIGIT/PUT_CHR – &quot;0&quot;, Ziffer A bzw. Zeichen A nach (HL), HL+1. <em>(neu in SB-6610)</em></td>
+</tr>
+</tbody>
+</table>
+<h2 id="print-input">PRINT / INPUT</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">37D7h</td>
+<td><code>ST_PRINT</code></td>
+<td>Geräteverteilung über DEV_DISPATCH und die Tabellen DEVTAB_PRINT/DEVTAB_INPUT (Bildschirm, Drucker, Kassette, Diskette). PRINT &#91;/P &#124; /T &#124; #n&#91;(satz)&#93;&#93; &#91;USING schablone;&#93; &#91;ausdruck&#93;&#91;; &#124; ,&#93;&#91;...&#93; – auch &quot;?&quot;. Zuerst USING_PTR = 0 (ohne USING). /P und /T setzen FILE_NO auf 82h bzw. 83h (GETDEVICE), #n auf n (FILE_RECNO liest bei Satzdateien die Satznummer), sonst 80h. USING (Token 9Dh) direkt danach bzw. bei /P: PR_USING. Jedes Element wird mit VAL2TEXT/STR2TEXT nach INBUF gewandelt und über DEVTAB_PRINT+2*15 ausgegeben; ohne ; oder , am Ende folgt der Zeilenabschluss über DEVTAB_PRINT. &quot;,&quot; springt auf dem Bildschirm zur nächsten Tabulatorposition (TABPOS), beim Drucker über PRN_TABZONE. TAB(n) füllt auf dem Bildschirm mit 03h, beim Drucker mit Leerzeichen bis Spalte n auf; bei anderen Geräten Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">38A8h</td>
+<td><code>VAL2TEXT</code></td>
+<td>VAL2TEXT – Zahl bei (VALSP) als Text nach (HL+1), Länge in (HL). STR2TEXT – String (E = Nummer) ebenso. Beide hängen 0Dh an.</td>
+</tr>
+<tr>
+<td style="text-align: right;">38CBh</td>
+<td><code>PR_USING</code></td>
+<td>PR_USING – PRINT &#91;/P&#93; USING schablone; ... : Schablone (Stringausdruck) auswerten, &quot;;&quot; muss folgen; USING_PTR auf USING_FMT setzen, Schablone mit USING_PARSE zerlegen. Danach gibt NUM2STR jede Zahl über NUM_OUT nach der Schablone aus. Leere Schablone: Fehler 1. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">38E6h</td>
+<td><code>FILE_RECNO</code></td>
+<td>FILE_RECNO – nach #n: Dateieintrag holen; bei Satzdateien (FC_MODE = 2) muss &quot;(satz)&quot; folgen, Satznummer &gt; 0 nach REC_NO. Danach optionales &quot;,&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">390Dh</td>
+<td><code>FILE_FLUSH</code></td>
+<td>FILE_FLUSH – geänderten Sektor der Satzdatei zurückschreiben, dann FILE_RELBUF: Puffer 6682h freigeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3933h</td>
+<td><code>REC_NO</code></td>
+<td>REC_*: Satzdateien (32-Byte-Sätze). REC_NO aktuelle Satznummer, REC_BUFOK/REC_BUFSEC geladener Sektor im Puffer 6682h, REC_SEC und REC_OFS Sektor und Versatz des Satzes (REC_LOCATE).</td>
+</tr>
+<tr>
+<td style="text-align: right;">393Ch</td>
+<td><code>FILE_PUT</code></td>
+<td>FILE_PUT – Text (DE, Länge BC) in die Datei schreiben. Sequentiell (FC_MODE = 1): in den Sektorpuffer, volle Sektoren werden mit FPUT_NEXTSEC geschrieben (neuer Sektor über FILE_NEWSEC/SEC_ALLOC). Satzdatei (FC_MODE = 2): REC_PUT. Sonst Fehler 45 (SB-6511: 44). Wird die Datei zu groß: Fehler 53 (SB-6511: 55).</td>
+</tr>
+<tr>
+<td style="text-align: right;">39DFh</td>
+<td><code>REC_PUT</code></td>
+<td>REC_PUT – Satz REC_NO schreiben: Text auf 32 Bytes mit Leerzeichen auffüllen, Datei bei Bedarf verlängern (REC_EXTEND), Sektor laden, Satz hineinkopieren, REC_NO erhöhen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3A6Eh</td>
+<td><code>REC_LOCATE</code></td>
+<td>REC_LOCATE – Satznummer REC_NO-1 in Sektor (REC_SEC, über die Sektortabelle bei FC_B40) und Versatz (REC_OFS = Satz * 32) zerlegen. Nur für FC_TYPE = 0, sonst Fehler 1.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3AF5h</td>
+<td><code>DEV_USER</code></td>
+<td>DEV_USER – Dateityp 3: Routine, deren Adresse im FILETAB-Eintrag (+3/+4) steht.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3B00h</td>
+<td><code>DEV_DISPATCH</code></td>
+<td>DEV_DISPATCH – Routine aus der Tabelle HL für das aktuelle Gerät: FILE_NO &gt;= 80h -&gt; Eintrag FILE_NO-80h, Datei #n -&gt; Eintrag FC_TYPE+10. Fehler werden über SET_IOERR abgefangen. DEVTAB_PRINT: Einträge 0-14 = Zeilenabschluss, ab Eintrag 15 (Basis DEVTAB_PRINT+2*15) = ein Element ausgeben. DEV_NOP = nichts tun.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3B1Bh</td>
+<td><code>INT_FINISH</code></td>
+<td>INT_FINISH – Schluss von FN_INT: (DE) in Ganzzahlform; Null wird zu echter 0 (kein &quot;-0&quot;). Steht in den unbenutzten Einträgen 4-9 von DEVTAB_PRINT (Geräte 84h-89h, bei SB-6511 GP-IB/RS-232C). Nachträgliche Korrektur: in der älteren Fassung (DISK26) fehlt sie. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">3B4Fh</td>
+<td><code>ST_INPUT</code></td>
+<td>INPUT &#91;/T &#124; #n&#93; &#91;&quot;text&quot;;&#93; var&#91;,var...&#93; – nur im Programm. Bildschirm: Text bzw. &quot;? &quot; ausgeben, Zeile ab der Cursorposition mit GETLINE lesen; BREAK (0Bh) merkt die Stelle für CONT (CONT_FLAG = 80h). Werte durch Kommas getrennt, Strings auch in Anführungszeichen; fehlen Werte, wird mit &quot;? &quot; nachgefragt (IN_MORE). Gerät/Datei: je Variable ein Satz über DEVTAB_INPUT. Zahlen über NUMSTR_EVAL (sonst Fehler 4).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3C14h</td>
+<td><code>FILE_GET</code></td>
+<td>FILE_GET – nächsten Text aus der Datei nach (DE), Länge in C. Sequentiell (FC_MODE = 0): bis 0Dh, über Sektorgrenzen hinweg; Satzdatei (FC_MODE = 2): Satz REC_NO (32 Bytes, REC_GET). Am Dateiende wird im Eintrag Byte 8 gesetzt (FILE_EOF, für IF EOF). Sonst Fehler 45 (SB-6511: 44).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3D05h</td>
+<td><code>IN_ASSIGN</code></td>
+<td>IN_ASSIGN – Wert (STRLIT-Ergebnis) der nächsten Variablen aus der INPUT-Liste zuweisen; danach zurück zur Adresse auf dem Stack (nächster Wert) oder am Ende der Liste NEXTSTMT.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="dateibefehle-kassette-diskette">Dateibefehle (Kassette / Diskette)</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">3D5Dh</td>
+<td><code>READ_NEXT</code></td>
+<td>READ_NEXT – READ: nächstes Element aus DATA holen (DATA_FLAG/DATA_PTR), bei Bedarf die nächste DATA-Anweisung suchen (DATA_SEARCH, keine mehr: Fehler 24). READ läuft über die INPUT-Zuweisung mit FILE_NO = 81h.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3DB5h</td>
+<td><code>ST_LOAD</code></td>
+<td>LOAD &#91;/T &#124; dateiangabe&#93; – BASIC-Programm (Typ BTX) laden, auch CHAIN und RUN &quot;datei&quot; laufen hier durch. /T: von Kassette (LOAD_TAPE). Diskette: Eintrag im Verzeichnis suchen (DIR_SCAN, nicht gefunden: Fehler 40), Typ OBJ -&gt; LOAD_OBJ (Maschinenprogramm), sonst muss es BTX sein (Fehler 63). Programm in zwei Teilen lesen (LOAD_PART1 direkt, LOAD_PART2 über (VALSP) bei unvollständigem letztem Sektor), Links umrechnen (RELINK). Bei RUN &quot;datei&quot; danach starten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">3ECEh</td>
+<td><code>LIST_LOCK</code></td>
+<td>LIST_LOCK – &lt;&gt; 0 sperrt LIST und SAVE (CHK_DIRECT_LK). Wird von CLEARALL gelöscht, aber vom BASIC nirgends gesetzt: vermutlich ein Listschutz, den ein Programm per POKE setzt. Weder das Handbuch noch ein Programm auf den Disketten erwähnt oder benutzt ihn. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">3ED0h</td>
+<td><code>ST_SAVE</code></td>
+<td>SAVE &#91;/T &#124; dateiangabe&#93; – Programm als BTX speichern (nur Direktmodus). Platz suchen (SEC_ALLOC), Links relativ machen (UNLINK), Sektoren schreiben, Links zurückrechnen, Verzeichniseintrag anlegen (DIR_NEWFILE; vorhandener Name: Fehler 42, Verzeichnis voll: 51).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3F2Fh</td>
+<td><code>ST_CHAIN</code></td>
+<td>CHAIN dateiangabe – Programm laden und starten, Variablen bleiben erhalten (CHAIN_MODE = 1). Auch SWAP benutzt diesen Weg (CHAIN_MODE 2/3, CHAIN_SWAP).</td>
+</tr>
+<tr>
+<td style="text-align: right;">3F56h</td>
+<td><code>ST_SWAP</code></td>
+<td>SWAP dateiangabe – laufendes Programm samt Variablen (ab 6696h) als Auslagerungsdatei (Typ 80h/81h) speichern, das andere Programm laden und starten. Sein END kehrt über SWAP_BACK zurück (END_SWAP). SWAP während SWAP: Fehler 25.</td>
+</tr>
+<tr>
+<td style="text-align: right;">406Bh</td>
+<td><code>DEV_DEFAULT</code></td>
+<td>DEV_DEFAULT – Standardgerät (DEV_DEFTYPE, von DIR gesetzt) nach FC_TYPE/ FC_UNIT. DEV_SAVE/DEV_RESTORE sichern bzw. holen es für SWAP.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4086h</td>
+<td><code>FILES_RESET</code></td>
+<td>FILES_RESET – Dateitabelle leeren und alle Puffer freigeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">40B7h</td>
+<td><code>ST_XOPEN</code></td>
+<td>XOPEN #n, dateiangabe – Satzdatei (Typ BRD, FC_MODE 2) öffnen. ROPEN #n, ... – sequentiell lesen (BSD, Modus 0), /T: Kassette. WOPEN #n, ... – sequentiell schreiben (BSD, Modus 1), /T: Kassette. Nur im Programm; #n muss angegeben sein (Fehler 64). OPEN_CHKOPEN prüft über FTAB_SCAN, dass Nummer und Datei frei sind (Fehler 64/43), OPEN_NEWENT legt den Eintrag in FILETAB an, OPEN_DISK sucht bzw. legt die Datei an (lesen: nicht gefunden Fehler 40; schreiben: vorhanden Fehler 42; falscher Typ Fehler 63).</td>
+</tr>
+<tr>
+<td style="text-align: right;">41D1h</td>
+<td><code>ST_CLOSE</code></td>
+<td>CLOSE &#91;/T &#124; #n&#91;,#m...&#93;&#93; – Dateien schließen, ohne Nummer alle (127..1). Schreibdateien: letzten Sektor schreiben und Verzeichniseintrag anlegen (CLOSE_DISK/DIR_NEWFILE), Satzdateien: Sektortabelle sichern (CLOSE_REC). Danach FILETAB-Eintrag löschen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">424Fh</td>
+<td><code>DIR_NEWFILE</code></td>
+<td>DIR_NEWFILE – freien Verzeichniseintrag suchen (DIR_SCAN; Name schon vorhanden: Fehler 42; kein Platz: Fehler 51) und DIRENT dort eintragen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">42A1h</td>
+<td><code>ST_DIR</code></td>
+<td>DIR &#91;FD&#91;n&#93;&#93; &#91;/P&#93; – Verzeichnis ausgeben (nur Direktmodus), mit FD&#91;n&#93; wird außerdem das Standardgerät gesetzt. Je Eintrag Typ, Sperre (*) und Name in Anführungszeichen; Kopfzeile mit Volumennummer bzw. MASTER und freien Sektoren. Bildschirm: nach 20 Zeilen Pause (INLINE_CHK).</td>
+</tr>
+<tr>
+<td style="text-align: right;">43DFh</td>
+<td><code>MSG_FTYPES</code></td>
+<td>MSG_FTYPES: Typnamen je 3 Zeichen (1 OBJ, 2 BTX, 3 BSD, 4 BRD, sonst &quot; ? &quot;) und die Texte der DIR-Kopfzeile.</td>
+</tr>
+<tr>
+<td style="text-align: right;">440Ah</td>
+<td><code>ST_DELLINES</code></td>
+<td>ST_DELLINES – DELETE &#91;a&#93;&#91;-&#91;b&#93;&#93;: beginnt das Argument mit einer Ziffer oder &quot;-&quot;, werden die Programmzeilen a bis b gelöscht (ohne a: ab Anfang, ohne b: bis Ende; a &gt; b: Fehler 1); sonst DELETE dateiangabe (ST_DELETE). Ohne Programm passiert nichts (DL_CHKPRG). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">4498h</td>
+<td><code>ST_DELETE</code></td>
+<td>DELETE dateiangabe – Datei löschen: nur Typ 1-4 (Fehler 63), nicht gesperrt (Fehler 46), nicht geöffnet (CHK_NOTOPEN). Sektoren freigeben (FREE_*), Eintrag mit Typ 0 zurückschreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">44FAh</td>
+<td><code>FREE_TYPE</code></td>
+<td>FREE_TYPE (Operand) = Dateityp: OBJ/BTX zusammenhängend (FREE_CONT), BSD als Sektorkette (FREE_BSD), BRD über die Sektortabelle (FREE_BRD).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4559h</td>
+<td><code>SECTOR_SIZE</code></td>
+<td>SECTOR_SIZE – BC = Sektorgröße der Einheit: 256 bei FC_TYPE 0, sonst 1024. FILE_SECCOUNT: Anzahl Sektoren für DIRENT_SIZE.</td>
+</tr>
+<tr>
+<td style="text-align: right;">45ADh</td>
+<td><code>IS_LOCKED</code></td>
+<td>IS_LOCKED – NZ, wenn der Verzeichniseintrag HL gesperrt ist (+12h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">45B6h</td>
+<td><code>ST_KILL</code></td>
+<td>KILL &#91;#n&#91;,#m...&#93;&#93; – Einträge aus der Dateitabelle streichen, ohne Nummer alle; anders als CLOSE ohne Schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">45E6h</td>
+<td><code>ST_UNLOCK</code></td>
+<td>LOCK / UNLOCK dateiangabe – Sperrbyte (+12h) im Verzeichnis setzen bzw. löschen (nicht bei geöffneten Dateien).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4617h</td>
+<td><code>FILECMD_DONE</code></td>
+<td>FILECMD_DONE – Puffer aufräumen (CLOSE_ALL), weiter mit NEXTSTMT.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4629h</td>
+<td><code>UNITS_CHECK</code></td>
+<td>UNITS_CHECK – zählt in UNIT_USE, welche Einheiten noch von geöffneten Dateien benutzt werden, schaltet ohne offene Datei den Motor ab und gibt die Puffer unbenutzter Einheiten frei.</td>
+</tr>
+<tr>
+<td style="text-align: right;">46A1h</td>
+<td><code>ST_RENAME</code></td>
+<td>RENAME dateiangabe, &quot;neuer name&quot; – Name 1-16 Zeichen (Fehler 60), neuer Name schon vorhanden: Fehler 42, alter fehlt: 40, gesperrt: 46.</td>
+</tr>
+<tr>
+<td style="text-align: right;">470Eh</td>
+<td><code>GETFILENO</code></td>
+<td>GETFILENO – optionales &quot;#n&quot; lesen: FILE_NO = n (1-127, sonst Fehler 64), ohne &quot;#&quot; 80h. Flags: M, wenn kein &quot;#&quot;.</td>
+</tr>
+<tr>
+<td style="text-align: right;">472Fh</td>
+<td><code>FTAB_FIND</code></td>
+<td>FTAB_FIND – Eintrag mit Dateinummer A in FILETAB suchen: HL = Eintrag, A = Index; fehlt er, Sprung zur Inline-Adresse.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4746h</td>
+<td><code>FILE_SELECT</code></td>
+<td>FILE_SELECT – #n lesen und die Datei zur aktuellen machen (FILE_LOAD: Eintrag nach FC_IDX.., Puffer einrichten), fehlt sie: Fehler 44.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4779h</td>
+<td><code>FILE_INITFD</code></td>
+<td>FILE_INITFD – Dateipuffer (320 Bytes, Bereich 6650h + 2*FC_IDX) anlegen und FC_B00..FC_B13E darauf setzen, Puffer der Einheit holen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">47B3h</td>
+<td><code>AREA_RESIZE</code></td>
+<td>AREA_RESIZE – Bereich (Zeiger bei HL) auf BC Bytes bringen (+2 für die Länge, BC = 0: freigeben). AREA_ALLOC: dasselbe, HL hinter die Länge. AREA_FREE: freigeben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">47FDh</td>
+<td><code>BITMAP_GET</code></td>
+<td>BITMAP_GET/UNIT_GETBUF – Puffer der Einheit holen; ist er leer, 256 Bytes anlegen und Sektor 15 (Belegungstabelle) lesen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4834h</td>
+<td><code>DISK_READ</code></td>
+<td>DISK_READ / DISK_WRITE – DE Bytes ab Sektor BC nach/von HL. Über DISKTAB nach FC_TYPE + Richtung: nur FD (FD_READ lesen, FD_WRITE schreiben).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4869h</td>
+<td><code>MOTOR_OFF</code></td>
+<td>MOTOR_OFF – Sprung auf FD_MOTOR_OFF (alle Aufrufe gehen über diese Stelle). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">487Ch</td>
+<td><code>BM_SCANINIT</code></td>
+<td>BM_*: Belegungstabelle (je Sektor ein Bit). Der Bittest wird in den Befehlen bei BM_SCAN_TEST bzw. BM_BITCODE zur Laufzeit zusammengesetzt. Kein freier Bereich: Fehler 53.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4955h</td>
+<td><code>SEC_ALLOC</code></td>
+<td>SEC_ALLOC – DE zusammenhängende freie Sektoren suchen und belegen, BC = erster Sektor.</td>
+</tr>
+<tr>
+<td style="text-align: right;">49B1h</td>
+<td><code>CHK_NOTOPEN</code></td>
+<td>CHK_NOTOPEN – Fehler 43, wenn die Datei DIRENT in FILETAB geöffnet ist.</td>
+</tr>
+<tr>
+<td style="text-align: right;">49DDh</td>
+<td><code>DIR_SCAN</code></td>
+<td>DIR_SCAN – Verzeichnis lesen (64 Einträge zu 32 Bytes) und für jeden die Rückrufroutine (Inline-Adresse) mit HL = Eintrag aufrufen: Z = leer, M = Diskettenkopf (Volumen wird geprüft, falsche Diskette: Fehler 52). Die Rückrufroutine kehrt zurück (weiter suchen) oder bricht mit POP AF ab. Danach: A = 1 und HL = erster freier Eintrag, falls es einen gab; Fortsetzung hinter dem Inline-Wort.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4A48h</td>
+<td><code>DIR_READ</code></td>
+<td>DIR_READ / DIR_WRITE – 2 KB Verzeichnis ab Sektor 16 in den Puffer 667Ch lesen bzw. zurückschreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4A66h</td>
+<td><code>NAMECMP</code></td>
+<td>NAMECMP – DIRENT_NAME mit dem Namen im Eintrag HL (+1) vergleichen, höchstens 16 Zeichen bzw. bis 0Dh. Z = gleich.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4A7Ch</td>
+<td><code>FTAB_SCAN</code></td>
+<td>FTAB_SCAN – für jeden der 10 FILETAB-Einträge die Rückrufroutine (Inline-Adresse) aufrufen, HL = Eintrag, A = Dateinummer (Z = frei); danach weiter hinter dem Inline-Wort.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4AB4h</td>
+<td><code>DIRENT</code></td>
+<td>DIRENT: Verzeichniseintrag (32 Bytes): Typ (1 OBJ, 2 BTX, 3 BSD, 4 BRD), Name (16 + 0Dh), +12h Sperre, +14h Größe, +16h Ladeadresse, +18h Startadresse, +1Eh erster Sektor.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4AD4h</td>
+<td><code>FILESPEC</code></td>
+<td>FILESPEC – Dateiangabe lesen: &#91;FD&#91;1-4&#93;&#91;@vol&#93;,&#93; &quot;name&quot; (1-16 Zeichen, sonst Fehler 60) oder USR(adresse) (FC_TYPE 3: eigene Treiberroutine). Ohne Gerät gilt das Standardgerät. Laufwerk 1-4: Fehler 61, Volumen 1-127: Fehler 52.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4B83h</td>
+<td><code>GETDEVICE</code></td>
+<td>GETDEVICE – nach &quot;/&quot;: P -&gt; FILE_NO 82h (Drucker), T -&gt; 83h (Kassette).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4B9Bh</td>
+<td><code>ST_REW</code></td>
+<td>REW / FAST – Kassette zurück- bzw. vorspulen. TAPE_WAIT verlangt eine eingelegte Kassette (&quot;Set tape&quot;, BREAK bricht ab).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4BD4h</td>
+<td><code>ST_VERIFY</code></td>
+<td>VERIFY &#91;&quot;name&quot;&#93; – gespeichertes Programm mit dem Band vergleichen (nur Direktmodus). LOAD /T &#91;&quot;name&quot;&#93; läuft über denselben Weg (LOAD_MODE 1).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4BFDh</td>
+<td><code>TAPE_LV</code></td>
+<td>TAPE_LV – Kassette lesen: Kopf suchen (Typ 1-3, Name passend oder leer), &quot;Found&quot;/&quot;Loading&quot; ausgeben. Typ 2 (BTX): Programm laden, Typ 1 (OBJ): an die Ladeadresse (TLV_OBJ; unter LIMIT: Fehler 18, über MEMTOP: Fehler 6). Lesefehler: TAPE_ERR (Fehler 70 bzw. BREAK).</td>
+</tr>
+<tr>
+<td style="text-align: right;">4CE6h</td>
+<td><code>SAVE_TAPE</code></td>
+<td>SAVE /T &#91;&quot;name&quot;&#93; – Programm (Typ 2) mit Kopf auf Kassette schreiben.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4CEAh</td>
+<td><code>TAPE_NAME</code></td>
+<td>TAPE_NAME – optional &quot;,&quot;, dann optional &quot;name&quot; (1-16 Zeichen, sonst Fehler 60) nach DIRENT_NAME; Typ in DIRENT.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4D6Ah</td>
+<td><code>TPRINT</code></td>
+<td>TPRINT / TINPUT – PRINT/INPUT /T: Text in den Puffer TAPEBUF (256 Bytes) bzw. aus ihm; ein voller Puffer wird als Block geschrieben bzw. der nächste Block gelesen. FFh im Puffer markiert das Ende der Datei. TFILE_MODE: 0 keine, 1 WOPEN /T, 2 ROPEN /T; TFILE_PTR: Position. Falsche Richtung: Fehler 44.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4DFCh</td>
+<td><code>WOPEN_TAPE</code></td>
+<td>WOPEN /T &#91;&quot;name&quot;&#93; – Kopf (Typ 3, BSD) schreiben, Puffer leeren. ROPEN /T &#91;&quot;name&quot;&#93; – Kopf vom Typ 3 suchen. Schon geöffnet: Fehler 43.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4E94h</td>
+<td><code>CLOSE_TAPE</code></td>
+<td>CLOSE /T – beim Schreiben letzten Block mit FFh-Ende schreiben, beim Lesen Band stoppen; TFILE_MODE = 0.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4ED3h</td>
+<td><code>DLY_OFF</code></td>
+<td>DLY_OFF/DLY_ON – Wartezeit DLY_LONG des Monitors abschalten (C9h = RET) bzw. wieder einschalten (3Eh), damit Blöcke ohne Pause folgen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4EE0h</td>
+<td><code>LOAD_OBJ</code></td>
+<td>LOAD_OBJ – Maschinenprogramm (OBJ) von Diskette an seine Ladeadresse laden (unter LIMIT: Fehler 18, über MEMTOP: Fehler 6). Bei RUN &quot;datei&quot; stattdessen RUN_OBJ.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F23h</td>
+<td><code>RUN_OBJ</code></td>
+<td>RUN_OBJ – OBJ-Programm erst nach PRGTXT laden, dann RUN_TRAMP mit Länge, Quelle, Ziel und Startadresse füllen, nach FF10h kopieren und dort ausführen: verschiebt das Programm an seine Ladeadresse (LDDR, wenn es nach oben geht) und springt es an.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F70h</td>
+<td><code>RUN_TRAMP</code></td>
+<td>Kopier- und Startroutine, wird nach FF10h kopiert und dort ausgeführt (Operanden werden vorher eingesetzt, LDIR/LDDR je nach Richtung)</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F7Eh</td>
+<td><code>PRN_EOLCHK</code></td>
+<td>PRN_EOLCHK – Zeilenvorschub nur, wenn die Druckerzeile nicht leer ist. PRN_CRLF – Drucker prüfen, LF senden, Spalte 0.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4F90h</td>
+<td><code>PRN_TEXT</code></td>
+<td>PRN_TEXT – Text (DE, bis 0Dh) drucken und PRN_COL mitzählen. Steuerzeichen 05h, 06h, 10h-15h werden in Druckerbefehle übersetzt (PRN_CTRL), andere unter 20h übergangen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">4FCEh</td>
+<td><code>PRN_C_NORMW</code></td>
+<td>PRN_C_NORMW/PRN_C_WIDEW – Steuerzeichen, die die Schriftbreite ändern, stellen zusätzlich PRN_DOTW um (neu gegenüber SB-6511). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">5011h</td>
+<td><code>PRN_LINE</code></td>
+<td>PRN_LINE – Text unverändert drucken (für LIST/P, DIR/P).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5045h</td>
+<td><code>PRN_TABZONE</code></td>
+<td>PRN_TABZONE – PRINT &quot;,&quot; auf dem Drucker: Leerzeichen bis zur nächsten Spalte, die durch 10 teilbar ist.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="drucker-und-print-using">Drucker und PRINT USING</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">506Dh</td>
+<td><code>PRN_ESC</code></td>
+<td>PRN_ESC – ESC (1Bh) senden. PRN_OUT – Byte A an Port FFh, Strobe über Port FEh; wartet auf den Drucker (PRN_WAIT, Zeitüberschreitung: Fehler 65).</td>
+</tr>
+<tr>
+<td style="text-align: right;">50A0h</td>
+<td><code>PRN_CHECK</code></td>
+<td>PRN_CHECK – Druckerstatus abfragen (ESC 03h, ESC 04h); Fehler 67 bzw. 66.</td>
+</tr>
+<tr>
+<td style="text-align: right;">50B2h</td>
+<td><code>ST_PAGEP</code></td>
+<td>PAGE/P n – Seitenlänge n (1-255) an den Drucker (ESC 12h n).</td>
+</tr>
+<tr>
+<td style="text-align: right;">50CFh</td>
+<td><code>ST_IMAGEP</code></td>
+<td>IMAGE/P ausdruck&#91;;...&#93; – die Texte der Ausdrücke als Bitmuster an den Drucker senden (ESC 18h, Länge, Daten; höchstens 1000 Bytes, sonst Fehler 3). Puffer: Bereich 6680h. Ohne Argument: Zeilenvorschub.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5178h</td>
+<td><code>PRN_DOTW</code></td>
+<td>PRN_DOTW – Druckzeile in Punkten: 01E0h (480, normal, 80 Zeichen) oder 0330h (816, schmal, 136 Zeichen); gesetzt von PRN_C_NORMW/PRN_C_WIDEW, ausgewertet von PRN_COLWRAP und dem Bitbilddruck. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">517Ah</td>
+<td><code>ST_COPYP</code></td>
+<td>COPY/P n – Bildschirm drucken. 1: Textbildschirm (25 Zeilen ab D000h), 2-4: Grafik (Ebenen über GR2_PATCH/GR2_PLANE1 gewählt, invertiert je nach Darstellung PPI_A Bit 4). BREAK bricht ab.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5264h</td>
+<td><code>GRAM_READ2</code></td>
+<td>GRAM_READ2 – Byte (HL) aus beiden Grafikebenen lesen und verknüpfen. In GR2_PATCH wird je nach COPY/P-Art &quot;LD B,A / LD A,C&quot; (7947h) oder &quot;JR $+11&quot; (0918h) eingesetzt.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5295h</td>
+<td><code>USING_PARSE</code></td>
+<td>USING_PARSE – Schablone ab DE zerlegen (Variablen USG_<em>). Beispiele (im Emulator geprüft): &quot;###.##&quot;;-2.5 -&gt; &quot;  -2.50&quot;, &quot;$#,###.##&quot;;1234.5 -&gt; &quot;$1,234.50&quot;, &quot;</em><strong><em>*&quot;;42 -&gt; &quot;</em></strong>42&quot;, &quot;##&quot;;123 -&gt; &quot;%123&quot;, &quot;<em><em>###&quot; und &quot;$$##&quot; -&gt; Fehler 1. Nachkommastellen werden abgeschnitten, nicht gerundet (&quot;#.##&quot;;2.556 -&gt; &quot;2.55&quot;); ohne + oder - in der Schablone kommt bei negativen Zahlen eine Stelle für &quot;-&quot; dazu. Präfix   beliebiger Text bis zum ersten Formatzeichen, nach USING_FMT kopiert (Länge USG_PRELEN) + -      Vorzeichen immer bzw. nur &quot;-&quot; (USG_SIGN, je einmal) $ £ @    Währungszeichen vor der Zahl (USG_CURR, einmal; £ = 91h) # *      Ziffernstelle, &quot;</em>&quot; füllt führende Stellen mit &quot;</em>&quot; (USG_FILL; gemischt: Fehler 1); Zahl der Stellen vor/hinter dem Punkt in USG_INTDIG/USG_FRACDIG .        Dezimalpunkt (einmal, Position in USG_POINT) , X      Tausendertrenner bzw. Leerstelle zwischen den Ziffern Suffix   Rest der Schablone (USG_SUFPTR/USG_SUFLEN) IX läuft dabei über USING_FMT, Ende in USING_PTR. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">5350h</td>
+<td><code>NUM_OUT</code></td>
+<td>NUM_OUT – Ausgabe von NUM2STR (A = 0 normal, 1 mit Exponent, 2 ganz): ohne USING (USING_PTR = 0) NUMBUF bis 0Dh nach (DE) kopieren. Mit USING: Exponentform Fehler 1; Präfix, Vorzeichen/Währung (USING_SIGN), Ziffern nach der Schablone (Füllzeichen Leerzeichen oder &quot;*&quot;, &quot;,&quot; und &quot;X&quot; einfügen), Nachkommastellen (USING_DIGS), Suffix. Zu viele Stellen vor dem Punkt: NOU_OVERFLOW gibt &quot;%&quot; und die ganze Zahl aus. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">5420h</td>
+<td><code>USING_MATCH</code></td>
+<td>USING_MATCH – Zeichen (DE) in der Liste ab HL (Ende 00h) suchen: Z = gefunden. Listen: Formatzeichen &quot;#<em>X,.&quot; 0Dh, dann Vorzeichen/Währung &quot;+-$&quot; 91h &quot;@&quot;, dann Ziffernzeichen &quot;#</em>&quot;. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">542Eh</td>
+<td><code>USING_CHARS</code></td>
+<td>Zeichenlisten für USING_MATCH (je bis 00h; USING_CHARS schließt die folgenden mit ein) <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">543Dh</td>
+<td><code>USING_DIGS</code></td>
+<td>USING_DIGS – C Stellen nach der Schablone (HL) aus NUMBUF (DE) ausgeben; &quot;,&quot; &quot;.&quot; übernehmen, &quot;X&quot; als Leerzeichen, fehlende Ziffern als &quot;0&quot;. Ist das Byte 002Dh (Monitor-Bereich) &lt;&gt; 0, wird die Ziffer 0 als Buchstabe &quot;O&quot; ausgegeben. Laut Handbuch (2.4.1) mit POKE $002D,1 einzuschalten, POKE $002D,0 schaltet zurück; das BASIC setzt 002Dh nie. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">5474h</td>
+<td><code>USING_SIGN</code></td>
+<td>USING_SIGN – Währungszeichen (USG_CURR) und Vorzeichen ausgeben: &quot;-&quot; immer, &quot;+&quot; nur bei USG_SIGN = &quot;+&quot;, sonst Leerzeichen bei USG_SIGN = &quot;-&quot;. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">5493h</td>
+<td><code>USING_PUTINC</code></td>
+<td>USING_PUTINC: HL + 1, dann USING_PUT: A nach (IX), IX + 1. <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">54A7h</td>
+<td><code>GR_POINT</code></td>
+<td>GR_POINT – POINT(x,y): Pixel in beiden Grafikebenen testen, A = 0-3 (Bit 1 Ebene 1, Bit 0 Ebene 0; FFh außerhalb des Bildes).</td>
+</tr>
+<tr>
+<td style="text-align: right;">54DFh</td>
+<td><code>GR_SETCUR</code></td>
+<td>Pixel setzen/löschen: GR_SETPIX (DE = x, HL = y) bzw. GR_RESPIX; GR_SETCUR/GR_RESCUR an der Grafikposition GR_X/GR_Y. GR_TESTPIX testet.</td>
+</tr>
+<tr>
+<td style="text-align: right;">54EEh</td>
+<td><code>GR_PIXOP</code></td>
+<td>GR_PIXOP – Pixelbefehl auf (DE = x 0-319, HL = y 0-199) anwenden; A ist das zweite Byte von SET/RES/BIT 0,(HL) (C6h/86h/46h). Die Bitnummer wird dazugerechnet und in GR_PIX_DO eingesetzt. Grafik-VRAM wird dafür über PIO_AD Bit 7 eingeblendet. Außerhalb des Bildes: nichts, A = FFh.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5527h</td>
+<td><code>GR_ADDR</code></td>
+<td>GR_ADDR – Adresse im Grafik-VRAM: HL = E000h + y<em>40 + x/8, B = Bit</em>8.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5544h</td>
+<td><code>GR_LINE</code></td>
+<td>GR_LINE – Linie von (GRL_X1,GRL_Y1) nach (DE,HL) mit dem Pixelbefehl aus GRL_PIXCALL (Bresenham). Koordinaten werden intern um 3BDAh verschoben (GR_BIAS), damit Differenzen positiv bleiben; Schrittrichtung über selbst eingesetzte INC/DEC (GRL_INCX/GRL_INCY).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5645h</td>
+<td><code>LINE_SET</code></td>
+<td>LINE_SET / LINE_RESET – Streckenzug zeichnen bzw. löschen. Eingang: DE = Punktliste (je Punkt x, y als 16-Bit-Werte, Low-Byte zuerst), A = Anzahl der Strecken (Punkte - 1). Punkte außerhalb von 320x200 werden nicht gezeichnet. Danach steht die Grafikposition GR_X/GR_Y auf dem letzten Punkt. Ändert alle Register.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5685h</td>
+<td><code>GR_FILL</code></td>
+<td>GR_FILL / GR_CLEAR – die gewählten Grafikebenen (E000h-FFFFh) mit FFh füllen bzw. löschen (GRAPH F / GRAPH C).</td>
+</tr>
+<tr>
+<td style="text-align: right;">56ACh</td>
+<td><code>PAT_DRAW</code></td>
+<td>PAT_DRAW – Bitmuster (Zeichenkette, je Zeichen 8 Pixel) ab GR_X/GR_Y zeichnen, n Zeilen pro Spalte, dann weiter nach rechts. Richtung nach oben oder unten über PAT_STRIDE/PAT_STEP (von PATTERN eingesetzt).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5781h</td>
+<td><code>GR_WRBYTE</code></td>
+<td>GR_WRBYTE – Byte (HL) im Grafik-VRAM mit Maske GR_WR_MASK und Bits GR_WR_BITS ändern (Adressen über FFFFh werden übergangen).</td>
+</tr>
+<tr>
+<td style="text-align: right;">579Fh</td>
+<td><code>GR_X</code></td>
+<td>GR_X/GR_Y: Grafikposition (POSITION, letzter Punkt von SET/LINE).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="grafik">Grafik</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">57A6h</td>
+<td><code>ST_SET</code></td>
+<td>SET x,y / RESET x,y – Pixel setzen bzw. löschen und Grafikposition dorthin setzen. Außerhalb des Bildes passiert nichts.</td>
+</tr>
+<tr>
+<td style="text-align: right;">57C8h</td>
+<td><code>CHK_X</code></td>
+<td>CHK_X / CHK_Y – Fehler 3, wenn DE &gt; 319 bzw. &gt; 199.</td>
+</tr>
+<tr>
+<td style="text-align: right;">57DFh</td>
+<td><code>ST_LINE</code></td>
+<td>LINE x1,y1,x2,y2&#91;,x3,y3...&#93; / BLINE ... – Streckenzug zeichnen bzw. löschen. Die Punkte werden ab INBUF gesammelt (LINE_PUTW), mindestens zwei, sonst Fehler 1; dann LINE_SET bzw. LINE_RESET.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5843h</td>
+<td><code>ST_CONSOLE</code></td>
+<td>CONSOLE &#91;S a,b&#93; &#91;C 40&#124;80&#93; &#91;R&#124;N&#93; – Rollbereich Zeile a bis b (1-24), 40/80 Zeichen, inverse (R) bzw. normale (N) Darstellung (PPI_A Bit 4). Mehrere Angaben nacheinander möglich.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5878h</td>
+<td><code>CHK_ROW</code></td>
+<td>CHK_ROW – Fehler 3, wenn A nicht 1-24 ist.</td>
+</tr>
+<tr>
+<td style="text-align: right;">58BBh</td>
+<td><code>ST_PATTERN</code></td>
+<td>PATTERN &#91;-&#93;n, muster$ &#91;, ...&#93; – Bitmuster an der Grafikposition zeichnen (PAT_DRAW), n = 1-24 Zeilen; mit &quot;-&quot; in der Gegenrichtung (Schrittweite und ADD/SBC werden in PAT_STRIDE/PAT_STEP eingesetzt).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5907h</td>
+<td><code>ST_POSITION</code></td>
+<td>POSITION x,y – Grafikposition setzen (x 0-319, y 0-199, sonst Fehler 3).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5923h</td>
+<td><code>GRPH_PORT</code></td>
+<td>GRPH_PORT: an Port F4h ausgegebener Wert = GRPH_IN (Leseebene, GRAPH I) + GRPH_OUT (Schreibebenen, GRAPH O).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5926h</td>
+<td><code>ST_GRAPH</code></td>
+<td>GRAPH &#91;I n&#93; &#91;O ab&#93; &#91;C&#93; &#91;F&#93; – Leseebene n (1-2), Schreibebenen (Ziffern 0-2), gewählte Ebenen löschen (C) oder füllen (F); setzt Port F4h.</td>
+</tr>
+<tr>
+<td style="text-align: right;">599Dh</td>
+<td><code>FN_CSR</code></td>
+<td>CSRV / CSRH – Cursorzeile bzw. -spalte des Textbildschirms. POSV / POSH – Grafikposition y bzw. x.</td>
+</tr>
+<tr>
+<td style="text-align: right;">59CDh</td>
+<td><code>FN_CHARACTER</code></td>
+<td>CHARACTER$(x,y) – Zeichen an Textposition x (kleiner als die Zeilenbreite), y (0-24) als String; sonst Fehler 3.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5A0Dh</td>
+<td><code>POINT_GET</code></td>
+<td>POINT_GET – POINT(x,y) über GR_POINT, Ergebnis in A; rettet BC. Nachträgliche Korrektur (ältere Fassung: CALL GR_POINT direkt). <em>(neu in SB-6610)</em></td>
+</tr>
+<tr>
+<td style="text-align: right;">5D00h</td>
+<td><code>FD_READ</code></td>
+<td>FD_READ / FD_WRITE – Einsprünge des Floppy-Treibers für DISK_RW. FD_READ / FD_WRITE – Sektoren lesen/schreiben, Einsprung aus DISK_RW mit IX = DISK_PAR: +0 Laufwerk (0-3)       +1/+2 logischer Startsektor   +3/+4 Bytes +5/+6 Speicheradresse   +7/+8 Spur/Sektor in Arbeit   +9/+10 Startspur/-sektor 16 Sektoren zu 256 Bytes je Spur; logische Spur / 2 = Zylinder, Bit 0 = Seite. Der MB8876 hat einen invertierten Datenbus: alle Werte werden vor OUT und nach IN mit CPL umgedreht. Fehler gehen über (IY-1)/JP (IY) an den mit SET_IOERR gesetzten Behandler.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="floppy-treiber-mb8876">Floppy-Treiber (MB8876)</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Adresse</th>
+<th>Label</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">5D06h</td>
+<td><code>FD_MOTOR_OFF</code></td>
+<td>FD_MOTOR_OFF – Laufwerke abwählen, Motor aus, &quot;zurückgesetzt&quot;-Flags löschen (FD_RESET).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5D09h</td>
+<td><code>FD_SELECT</code></td>
+<td>FD_SELECT – Motor einschalten (beim ersten Mal mit Anlaufzeit, FD_MOTORON), Laufwerk (IX+0) wählen (Port DCh: Bit 7 Motor, Bit 2 Auswahl, Bit 0-1 Laufwerk), auf &quot;bereit&quot; warten (sonst Fehler 50); beim ersten Zugriff auf das Laufwerk RESTORE (Spur 0).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5D55h</td>
+<td><code>FD_SEEK</code></td>
+<td>FD_SEEK – SEEK (1Bh) zur Spur im Datenregister. NZ bei Fehlerbits.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5D73h</td>
+<td><code>FD_RESTORE</code></td>
+<td>FD_RESTORE – RESTORE (0Bh), Kopf auf Spur 0; Fehler: FD_ERROR.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5D80h</td>
+<td><code>FD_CMDWAIT</code></td>
+<td>FD_CMDWAIT – Kommando A ausgeben (FD_LASTCMD), auf &quot;nicht beschäftigt&quot; warten, Status nach FD_STATUS.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5D98h</td>
+<td><code>FD_WAITBUSY</code></td>
+<td>FD_WAITBUSY – warten, bis Bit 0 des Status wechselt; die Richtung (JR C bzw. JR NC) wird in FD_WB_JR eingesetzt. Zeitüberschreitung: Fehler 41.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5DB8h</td>
+<td><code>FDR_START</code></td>
+<td>FDR_START – Lesen: Spur/Sektor aus dem logischen Sektor (FD_PREP), je Spur SEEK, Spur- und Sektorregister setzen, READ SECTOR mit Mehrfachsektoren (94h) und die Bytes mit INI holen (Datenport DBh). Nach Sektor 16 Abbruch mit FORCE INTERRUPT und weiter auf der nächsten Spur. Fehler: bis zu 10 Versuche (FD_RETRY) mit RESTORE dazwischen.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E0Bh</td>
+<td><code>FDW_START</code></td>
+<td>FDW_START – Schreiben wie FDR_START mit WRITE SECTOR (B4h) und OUTI; danach Kontrolllesen (FD_VERIFY). Schreibschutz: Fehler 41.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E6Ah</td>
+<td><code>FD_PREP</code></td>
+<td>FD_PREP – Startspur/-sektor berechnen, 10 Versuche einstellen. FD_SETUP – Laufwerk wählen, D = Anzahl Sektoren, HL = Speicheradresse.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5E93h</td>
+<td><code>FD_SIDE</code></td>
+<td>FD_SIDE – A = logische Spur: A/2 ins Datenregister (für SEEK), Bit 0 als Seite an Port DDh.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5EC2h</td>
+<td><code>FD_NEXTSEC</code></td>
+<td>FD_NEXTSEC – nach Sektor 16 auf Sektor 1 der nächsten Spur; NZ, wenn noch Sektoren fehlen (D).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5EE3h</td>
+<td><code>FD_FORCEINT</code></td>
+<td>FD_FORCEINT – FORCE INTERRUPT (D8h) und auf Ende warten.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5EF1h</td>
+<td><code>FD_VERIFY</code></td>
+<td>FD_VERIFY – geschriebene Sektoren zur Kontrolle lesen (Daten werden verworfen), 2 Versuche; C bei Fehler.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5F73h</td>
+<td><code>FD_ERROR</code></td>
+<td>FD_ERROR – Fehlernummer aus dem Status: nicht bereit (Bit 7) 50, Satz nicht gefunden (Bit 4) 54, sonst (auch Schreibschutz, Bit 6) 41. Nummer nach (IY-1) schreiben, Laufwerke abschalten, JP (IY).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5FAAh</td>
+<td><code>FD_LOG2PHYS</code></td>
+<td>FD_LOG2PHYS – logischen Sektor (IX+1/+2) in Spur (= Sektor / 16) und Sektor (= Rest + 1) zerlegen (IX+9/+10).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5FC7h</td>
+<td><code>FD_DLY_S</code></td>
+<td>FD_DLY_S / FD_DLY_M / FD_DLY_L – Warteschleifen (Zähler 000Fh, 00A0h, 1FE1h).</td>
+</tr>
+<tr>
+<td style="text-align: right;">5FE0h</td>
+<td><code>FD_LASTCMD</code></td>
+<td>FD_LASTCMD: letztes Kommando; FD_MOTOR: 1 = Motor läuft; FD_RESTORED..3: je Laufwerk 1 nach dem ersten RESTORE; FD_RETRIES, FD_VRETRIES: verbleibende Versuche.</td>
+</tr>
+<tr>
+<td style="text-align: right;">5FF0h</td>
+<td><code>AREA_RESIZE_CLR</code></td>
+<td>AREA_RESIZE_CLR – Nachtrag am Ende des Codes: AREA_RESIZE, dann die zwei Wörter hinter dem Zeiger (6680h) auf 0 setzen. Nachträgliche Korrektur (ältere Fassung: CALL AREA_RESIZE direkt). <em>(neu in SB-6610)</em></td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="werkzeuge.html">← Werkzeuge und Tests</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

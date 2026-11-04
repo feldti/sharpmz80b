@@ -1,0 +1,2980 @@
+                      ;==============================================================================
+                      ;  SHARP MZ-80B  –  Monitor SB-1511 (laut MONEQU auch für SB-1521)
+                      ;==============================================================================
+                      ;  Quelle : Datei "SB-1511" (FDOS-Typ 05h = RB, verschiebbarer Objektcode)
+                      ;           von DISK29.DSK (FDOS SB-7010), 1DB0h Bytes, Datum 10.05.81.
+                      ;           Die RB-Sätze legen den Code absolut ab 0000h ab (ORG 0000h).
+                      ;           Länge des Monitors: 12A0h Bytes (FKMAX).
+                      ;
+                      ;  Reassemblierbar mit pasmo; ergibt das Binärabbild SB-1511 (12A0h Bytes).
+                      ;  Die Bereiche, die die RB-Datei nicht vorbelegt (105Fh, 10FEh, 1198h),
+                      ;  stehen hier als DEFS mit 00h.
+                      ;
+                      ;  Namen
+                      ;  -----
+                      ;  Sharps Originalnamen aus der RB-Datei bzw. MONEQU.ASC ("EQU table of
+                      ;  MZ-80B monitor SB-1511/SB-1521") sind die EQUs ab _PUSHR sowie diese
+                      ;  Labels:
+                      ;    SCROST SCREND REPTCT SLOW GATESI SELO0 GOOUT ST .HL LOAMES FOUMES
+                      ;    WRINF WRDAT RDINF RDDAT VERFY OPEN SERSP MSTOP BLK1 FFWD HIGHSC TSPE
+                      ;    DEL1M BRKEY BRK KBSET PRTHL PRTHX ASC HEX HLHEX _2HEX ?CLER ?DINT
+                      ;    SETMES GETKY PRNTS PRNT ?DSP PRNTT NLMSG MSGX MSG SCRSET KEYKEY
+                      ;    NOKKEY ?DPCT NL LETNL DELLN ??TOL ??EOL MAGA ?PONT DSPRED DSPW CHR80
+                      ;    CHR40 XTEMP TIMST TIMRD BELL MELDY RYTHM RYTHMB KNUMBS GETL GETCRT
+                      ;    ??KEY TENTBL CHANGE ?SWAP PUSHR PUSHR2 DI_ KINT PUSHKI KINTON ..KEY
+                      ;    TABDAT MODE DSPXY DSPXY1 MANG FKAE KYBDA KSTD KINTF BUFER IBUFE IBU1
+                      ;    IBU18 DTADR EXADR IBU24
+                      ;  Angepasst wurden nur:
+                      ;    2HEX -> _2HEX   (Labels dürfen nicht mit einer Ziffer beginnen)
+                      ;    DI   -> DI_     (Kollision mit dem Befehl DI)
+                      ;  Alle übrigen Namen stammen aus der Analyse; die Namen der Teilroutinen
+                      ;  folgen, wo der Code gleich ist, dem SB-1510 in SB6511_RS232.asm.
+                      ;  Feste Adressen im Code (Meldungen, Notentabellen, Variablen in den
+                      ;  Lücken der RST-Vektoren) sind durch diese Namen ersetzt.
+                      ;  Z80KT, CH3979 und CH4080 bezeichnen Operanden einzelner Befehle, die
+                      ;  zur Laufzeit geändert werden (Zeitkonstante, 40/80-Zeichen-Werte).
+                      ;
+                      ;  Unterschiede zum SB-1510 (im Disk-BASIC SB-6511)
+                      ;  ------------------------------------------------
+                      ;  - Komplett neu angeordnet: nur wenige Routinen haben identischen Code.
+                      ;  - RST 20h = PUSHR (Register retten, beim RET automatisch zurückholen),
+                      ;    RST 28h = DI_ (Rest der Routine mit gesperrten Interrupts ausführen,
+                      ;    danach EI, sofern sie vorher frei waren). Fast alle Routinen beginnen
+                      ;    mit RST 20h / RST 28h.
+                      ;  - IM 1 statt IM 2. RST 08h-38h, NMI zeigen auf 09A5h: Registeranzeige
+                      ;    und zurück in die Kommandoschleife.
+                      ;  - Tastatur-Interrupt über PIO Port B (KINT/KINTON/PUSHKI, Flag KINTF).
+                      ;  - Meldungen in Kleinbuchstaben ("Loading", "Set tape" ...).
+                      ;  - Funktionstasten-Bereich FARE ab 1200h (FAREN = A0h Bytes, FKEYN = 20).
+                      ;  - Kommandos wie beim SB-1510: J, M, D, L, S, V mit Prompt "*".
+                      ;==============================================================================
+                      
+                      FDC_CMD   EQU    0D8h    ; FDC MB8876 Kommando/Status (invertiert)
+                      FDC_TRK   EQU    0D9h    ; FDC Spurregister
+                      FDC_SEC   EQU    0DAh    ; FDC Sektorregister
+                      FDC_DAT   EQU    0DBh    ; FDC Datenregister
+                      FDD_SEL   EQU    0DCh    ; Floppy: Laufwerk/Motor
+                      FDD_SID   EQU    0DDh    ; Floppy: Seitenwahl
+                      PPI_A     EQU    0E0h    ; 8255 Port A (Kassette, Video)
+                      PPI_B     EQU    0E1h    ; 8255 Port B (Kassette, BREAK, VBLANK)
+                      PPI_C     EQU    0E2h    ; 8255 Port C
+                      PPI_CTL   EQU    0E3h    ; 8255 Steuerwort
+                      PIT_C0    EQU    0E4h    ; 8253 PIT Zähler 0
+                      PIT_C1    EQU    0E5h    ; 8253 PIT Zähler 1
+                      PIT_C2    EQU    0E6h    ; 8253 PIT Zähler 2
+                      PIT_CTL   EQU    0E7h    ; 8253 PIT Steuerwort
+                      PIO_AD    EQU    0E8h    ; Z80-PIO Port A Daten (Tastaturzeile, VRAM)
+                      PIO_AC    EQU    0E9h    ; Z80-PIO Port A Steuerung
+                      PIO_BD    EQU    0EAh    ; Z80-PIO Port B Daten (Tastatur)
+                      PIO_BC    EQU    0EBh    ; Z80-PIO Port B Steuerung
+                      TMR_F0    EQU    0F0h    ; Timer/Ton F0
+                      TMR_F1    EQU    0F1h    ; Timer/Ton F1
+                      TMR_F2    EQU    0F2h    ; Timer/Ton F2
+                      TMR_F3    EQU    0F3h    ; Timer/Ton F3
+                      GRPH      EQU    0F4h    ; Grafik-VRAM Bank/Maske
+                      EXT_AH    EQU    0F8h    ; externe Karte Adresse H
+                      EXT_AL    EQU    0F9h    ; externe Karte Adresse L / Daten
+                      PRN_CTL   EQU    0FEh    ; Drucker Steuerung/Status
+                      PRN_DAT   EQU    0FFh    ; Drucker Daten
+                      
+                      _PUSHR    EQU    04h     ; Konstante aus MONEQU
+                      _DI       EQU    05h     ; Konstante aus MONEQU
+                      FARE      EQU    1200h   ; Konstante aus MONEQU
+                      FAREN     EQU    0A0h    ; Konstante aus MONEQU
+                      FKEYN     EQU    14h     ; Konstante aus MONEQU
+                      FKMAX     EQU    12A0h   ; Konstante aus MONEQU
+                      SCRN      EQU    0D000h  ; Konstante aus MONEQU
+                      
+                      ASCI      EQU    0583h   ; = ASC
+                      NAME      EQU    1181h   ; = IBU1
+                      SIZE      EQU    1192h   ; = IBU18
+                      IBU20     EQU    1194h   ; = DTADR
+                      IBU22     EQU    1196h   ; = EXADR
+                      
+                      Z80KT     EQU    DLY_BITSET+1 ; Operand eines Befehls (selbstmodifizierend)
+                      CH3979    EQU    COLCHK_MAX+1 ; Operand eines Befehls (selbstmodifizierend)
+                      CH4080    EQU    SCR_WIDTH+1 ; Operand eines Befehls (selbstmodifizierend)
+                      
+                              ORG     0000h
+                      
+                      
+                      ; ==============================================================================
+                      ;  RST-VEKTOREN UND MONITOR-VARIABLEN
+                      ; ==============================================================================
+                      ;  Zwischen den JP-Befehlen liegen Variablen (SCROST/SCREND = Rollbereich,
+                      ;  REPTCT, SLOW, GATESI, SELO0 ...).
+                      ; <- aufgerufen von 0E1Bh
+0000  C3 3B 00        RESET:  JP      COLD
+                      ;  Belegung der Lücken (aus der Verwendung):
+                      ;    000Bh/000Ch SCROST/SCREND  Rollbereich: erste Zeile + 1 / letzte Zeile
+                      ;    000Dh REPTCT    Abfragen je Schritt der Tastenwiederholung (40h)
+                      ;    000Eh REPTCT+1  Schritte bis zur ersten Wiederholung (0Ch)
+                      ;    000Fh SLOW      Verzögerung je gerollter Zeile, solange die Taste in
+                      ;                    Zeile 0Bh Bit 2 gedrückt ist (SCRL_KEYCHK)
+                      ;    0013h/0014h KEYPOS  zuletzt gedrückte Taste (Spaltenbit, Zeile)
+                      ;    0015h CLICKOFF  0 = Tastenklick (BELL) bei jeder Taste in GETL
+                      ;    0016h TEMPO     MUSIC-Tempo (XTEMP)
+                      ;  GAP03, GAP1B, GAP23, GAP2B, GAP33, GATESI und SELO0 werden von keinem
+                      ;  gefundenen Codepfad benutzt.
+0003  00 00 00 00 ..  GAP03:  DEFB    00h,00h,00h,00h,00h
+0008  C3 A5 09                JP      REGDUMP
+000B  01              SCROST: DEFB    01h
+000C  18              SCREND: DEFB    18h
+000D  40 0C           REPTCT: DEFB    40h,0Ch
+000F  80              SLOW:   DEFB    80h
+0010  C3 A5 09                JP      REGDUMP
+0013  00 00           KEYPOS: DEFB    00h,00h
+                      CLICKOFF:
+0015  FF                      DEFB    0FFh
+0016  00              TEMPO:  DEFB    00h
+0017  00              GATESI: DEFB    00h
+0018  C3 A5 09                JP      REGDUMP
+001B  00 00 00 00 ..  GAP1B:  DEFB    00h,00h,00h,00h,00h
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  RST 20h -> PUSHR: Register sichern, beim Rücksprung automatisch zurückholen
+                      ; ------------------------------------------------------------------------------
+                      ; <- aufgerufen von 021Dh, 024Eh, 025Fh, 027Dh, 0286h, 046Ah, 04C2h, 04D6h (+21 weitere)
+0020  C3 F1 0D        RST20:  JP      PUSHR                   ; RST 20h
+0023  00 00 00 00 ..  GAP23:  DEFB    00h,00h,00h,00h,00h
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  RST 28h -> DI_: restliche Routine mit gesperrten Interrupts ausführen
+                      ; ------------------------------------------------------------------------------
+                      ; <- aufgerufen von 021Eh, 024Fh, 0260h, 027Eh, 0287h, 06C4h, 0747h, 086Dh (+11 weitere)
+0028  C3 0E 0E        RST28:  JP      DI_                     ; RST 28h
+002B  00 00           GAP2B:  DEFB    00h,00h
+002D  00 00 00        SELO0:  DEFB    00h,00h,00h
+0030  C3 A5 09                JP      REGDUMP
+0033  00 00 00 00 ..  GAP33:  DEFB    00h,00h,00h,00h,00h
+0038  C3 A5 09                JP      REGDUMP                   ; RST 38h / IM-1-Interrupt
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Kaltstart: I/O-Bausteine über die Tabelle (Wert, Port) initialisieren
+                      ; ------------------------------------------------------------------------------
+003B  21 49 00        COLD:   LD      HL,IOTAB
+                      COLD_LP:
+003E  7E                      LD      A,(HL)
+003F  23                      INC     HL
+0040  4E                      LD      C,(HL)
+0041  23                      INC     HL
+0042  ED 79                   OUT     (C),A
+0044  3C                      INC     A
+0045  28 22                   JR      Z,INIT
+0047  18 F5                   JR      COLD_LP
+                      ;  IOTAB: Paare (Wert, Port) wie beim SB-1510, Ende nach Wert FFh; das 00h
+                      ;  dahinter füllt bis zum NMI-Vektor 0066h (JP REGDUMP).
+0049  02 E3 34 E7 ..  IOTAB:  DEFB    02h,0E3h,34h,0E7h,74h,0E7h,0B4h,0E7h
+0051  00 E6 00 E6 ..          DEFB    00h,0E6h,00h,0E6h,02h,0E5h,00h,0E5h
+0059  02 E4 00 E4 ..          DEFB    02h,0E4h,00h,0E4h,0CFh,0E9h,00h,0E9h
+0061  CF EB FF EB ..          DEFB    0CFh,0EBh,0FFh,0EBh,00h
+0066  C3 A5 09                JP      REGDUMP
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Initialisierung: Rollbereich, Stack 1180h, 40 Zeichen, Kassette,
+                      ;  Einschaltmeldung, IM 1, Uhr starten
+                      ; ------------------------------------------------------------------------------
+0069  21 01 18        INIT:   LD      HL,1801h
+006C  22 0B 00                LD      (SCROST),HL
+006F  31 80 11                LD      SP,1180h
+0072  21 D0 10                LD      HL,MODE
+0075  3E 12                   LD      A,12h
+0077  77                      LD      (HL),A
+0078  D3 E0                   OUT     (PPI_A),A
+007A  23                      INC     HL
+007B  06 1E                   LD      B,1Eh
+007D  CD D3 05                CALL    ?CLER
+                      INIT_KINT:
+0080  AF                      XOR     A
+0081  32 FD 10                LD      (KINTF),A
+0084  CD 8F 09                CALL    CHR40
+0087  3E 0D                   LD      A,0Dh
+0089  D3 E3                   OUT     (PPI_CTL),A
+008B  3E 04                   LD      A,04h
+008D  32 16 00                LD      (TEMPO),A
+0090  3C                      INC     A
+0091  32 1A 0B                LD      (NOTE_LENGTH+1),A
+0094  11 4F 0E                LD      DE,MSG_MONITOR
+0097  CD AC 06                CALL    NLMSG
+009A  ED 56                   IM      1                       ; Interrupt-Modus 1
+009C  AF                      XOR     A
+009D  57                      LD      D,A
+009E  5F                      LD      E,A
+009F  CD CA 09                CALL    TIMST
+00A2  18 0A                   JR      GOOUT
+00A4  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+00AC  00 00                   DEFB    00h,00h                 ; ?? |..|
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  GOOUT / ST – Kommandoschleife mit Prompt "*"
+                      ;  J adr  M adr  D start ende  L  S  V
+                      ; ------------------------------------------------------------------------------
+00AE  C3 B1 00        GOOUT:  JP      ST
+00B1  F3              ST:     DI
+00B2  3E 0D                   LD      A,0Dh
+00B4  D3 E3                   OUT     (PPI_CTL),A
+00B6  31 80 11                LD      SP,1180h
+00B9  CD 57 07                CALL    NL
+00BC  3E 2A                   LD      A,2Ah                   ; Prompt
+00BE  CD 3C 06                CALL    PRNT
+00C1  3E 27                   LD      A,27h                   ; "'"
+00C3  32 E3 0B                LD      (KNUMBS),A
+00C6  CD ED 00                CALL    GETCMD
+00C9  FE 2A                   CP      2Ah                     ; '*'
+00CB  20 E4                   JR      NZ,ST
+00CD  13                      INC     DE
+00CE  1A                      LD      A,(DE)
+00CF  21 B1 00                LD      HL,ST                   ; Rücksprungadresse ST
+00D2  E5                      PUSH    HL
+00D3  FE 4A                   CP      4Ah                     ; 'J'
+00D5  CA 17 02                JP      Z,CMD_J
+00D8  FE 4D                   CP      4Dh                     ; 'M'
+00DA  28 1D                   JR      Z,CMD_M
+00DC  FE 44                   CP      44h                     ; 'D'
+00DE  28 3D                   JR      Z,CMD_D
+00E0  FE 4C                   CP      4Ch                     ; 'L'
+00E2  28 65                   JR      Z,CMD_L
+00E4  FE 53                   CP      53h                     ; 'S'
+00E6  28 64                   JR      Z,CMD_S
+00E8  FE 56                   CP      56h                     ; 'V'
+00EA  28 5B                   JR      Z,CMD_V
+00EC  C9                      RET
+                      ;  GETCMD – Zeile nach BUFER lesen; BREAK (0Bh) führt zurück nach ST.
+                      ; <- aufgerufen von 00C6h, 010Ah, 0157h, 055Eh
+00ED  11 00 11        GETCMD: LD      DE,BUFER
+00F0  CD E5 0B                CALL    GETL
+00F3  1A                      LD      A,(DE)
+00F4  FE 0B                   CP      0Bh
+00F6  28 B9                   JR      Z,ST
+00F8  C9                      RET
+                      ;  *M adr – Speicher ändern: Adresse und Inhalt zeigen, neuen Wert (2 Hex-
+                      ;  ziffern) eingeben; leere Eingabe = nächste Adresse, ungültig = neue
+                      ;  Adresse. BREAK beendet.
+00F9  3E 4D           CMD_M:  LD      A,4Dh                   ; Kommando M adr
+00FB  CD 44 05                CALL    IN_HEXADR
+00FE  2B                      DEC     HL
+                      CMDM_NEXT:
+00FF  23                      INC     HL
+0100  CD 34 06                CALL    PRTADR
+0103  7E                      LD      A,(HL)
+0104  CD 6D 05                CALL    PRTHX
+0107  CD 3A 06                CALL    PRNTS
+010A  CD ED 00                CALL    GETCMD
+010D  11 08 11                LD      DE,MEM_IN
+0110  1A                      LD      A,(DE)
+0111  FE 0D                   CP      0Dh
+0113  28 EA                   JR      Z,CMDM_NEXT
+0115  CD B1 05                CALL    _2HEX
+0118  38 DF                   JR      C,CMD_M
+011A  77                      LD      (HL),A
+011B  18 E2                   JR      CMDM_NEXT
+                      ;  *D – Speicher von Start- bis Endadresse hexadezimal ausgeben, 8 (40
+                      ;  Zeichen) bzw. 16 Bytes je Zeile (Operand CMDD_PERLINE, gesetzt von
+                      ;  CHR40/CHR80). BREAK beendet, die Taste mit Code FDh in Port B hält an.
+011D  CD 3F 05        CMD_D:  CALL    IN_START                   ; Kommando D start ende
+0120  E5                      PUSH    HL
+0121  CD 42 05                CALL    IN_END
+0124  EB                      EX      DE,HL
+                      CMDD_START:
+0125  E1                      POP     HL
+                      CMDD_LINE:
+0126  CD 34 06                CALL    PRTADR
+                      CMDD_PERLINE:
+0129  06 10                   LD      B,10h
+                      CMDD_BYTE:
+012B  CD 3A 06                CALL    PRNTS
+012E  7E                      LD      A,(HL)
+012F  CD 6D 05                CALL    PRTHX
+0132  E5                      PUSH    HL
+0133  AF                      XOR     A
+0134  ED 52                   SBC     HL,DE
+0136  E1                      POP     HL
+0137  C8                      RET     Z
+0138  23                      INC     HL
+0139  10 F0                   DJNZ    CMDD_BYTE
+013B  CD 27 05                CALL    BRKEY
+013E  C8                      RET     Z
+                      CMDD_HOLD:
+013F  DB EA                   IN      A,(PIO_BD)
+0141  FE FD                   CP      0FDh
+0143  28 FA                   JR      Z,CMDD_HOLD
+0145  18 DF                   JR      CMDD_LINE
+                      ;  *V/*L/*S: Kommando als 0/1/2 im Operanden von TAPEMODE ablegen
+                      ;  ("DEFB 01h" verschluckt jeweils den nächsten LD). *S fragt Name, Start-,
+                      ;  End- und Ausführungsadresse ab und schreibt Kopf (Typ 1) und Daten.
+0147  AF              CMD_V:  XOR     A                       ; Kommando V
+0148  01                      DEFB    01h                     ; Trick: Opcode 01h verschluckt den folgenden Befehl
+0149  3E 01           CMD_L:  LD      A,01h                   ; Kommando L
+014B  01                      DEFB    01h                     ; Trick: Opcode 01h verschluckt den folgenden Befehl
+014C  3E 02           CMD_S:  LD      A,02h                   ; Kommando S
+014E  32 5B 01                LD      (TAPEMODE+1),A
+0151  11 A4 01                LD      DE,FNAMEMES
+0154  CD AC 06                CALL    NLMSG
+0157  CD ED 00                CALL    GETCMD
+                      TAPEMODE:
+015A  3E 00                   LD      A,00h
+015C  FE 02                   CP      02h
+015E  20 4F                   JR      NZ,CMDL_SEARCH
+0160  11 80 11                LD      DE,IBUFE
+0163  3E 01                   LD      A,01h
+0165  12                      LD      (DE),A
+0166  13                      INC     DE
+0167  21 0A 11                LD      HL,NAME_IN
+016A  01 10 00                LD      BC,0010h
+016D  ED B0                   LDIR
+016F  3E 0D                   LD      A,0Dh
+0171  12                      LD      (DE),A
+                      CMDS_RANGE:
+0172  CD 3F 05                CALL    IN_START
+0175  22 94 11                LD      (DTADR),HL
+0178  E5                      PUSH    HL
+0179  CD 42 05                CALL    IN_END
+017C  D1                      POP     DE
+017D  AF                      XOR     A
+017E  ED 52                   SBC     HL,DE
+0180  38 F0                   JR      C,CMDS_RANGE
+0182  22 92 11                LD      (IBU18),HL
+0185  21 B1 00                LD      HL,ST
+0188  22 96 11                LD      (EXADR),HL
+018B  3E 4A                   LD      A,4Ah                   ; 'J'
+018D  32 54 05                LD      (ASK_PROMPT+1),A
+                      CMDS_EXEC:
+0190  CD 50 05                CALL    ASK_ADR
+0193  28 08                   JR      Z,CMDS_WRITE
+0195  CD A2 05                CALL    HLHEX
+0198  38 F6                   JR      C,CMDS_EXEC
+019A  22 96 11                LD      (EXADR),HL
+                      CMDS_WRITE:
+019D  CD 1D 02                CALL    WRINF
+01A0  D4 4E 02                CALL    NC,WRDAT
+01A3  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Kassette: Kommandos L/S/V, Meldungen
+                      ; ------------------------------------------------------------------------------
+                      FNAMEMES:
+01A4  46 69 6C 65 ..          DEFB    "File name:",0Dh
+                      ;  *L/*V: Kopf lesen. Ist ein Name angegeben und passt nicht ("Found
+                      ;  name"), mit SERSP über den Datenblock spulen und weitersuchen. *L lädt
+                      ;  und startet an EXADR, *V vergleicht und meldet "OK".
+                      CMDL_SEARCH:
+01AF  CD 5F 02                CALL    RDINF
+01B2  D8                      RET     C
+01B3  3A 0A 11                LD      A,(NAME_IN)
+01B6  FE 0D                   CP      0Dh
+01B8  C4 D1 01                CALL    NZ,CMDL_FOUND
+01BB  20 F2                   JR      NZ,CMDL_SEARCH
+01BD  3A 5B 01                LD      A,(TAPEMODE+1)
+01C0  3D                      DEC     A
+01C1  20 26                   JR      NZ,CMDV_VERIFY
+01C3  11 F9 01                LD      DE,LOAMES
+01C6  CD A4 06                CALL    MSG_NAME
+01C9  CD 7D 02                CALL    RDDAT
+01CC  D8                      RET     C
+01CD  2A 96 11                LD      HL,(EXADR)
+                      ; <- aufgerufen von 06BDh, 0E44h, 0F8Fh
+01D0  E9              .HL:    JP      (HL)
+                      ; <- aufgerufen von 01B8h
+                      CMDL_FOUND:
+01D1  11 0D 02                LD      DE,FOUMES
+01D4  CD A4 06                CALL    MSG_NAME
+01D7  11 0A 11                LD      DE,NAME_IN
+01DA  21 81 11                LD      HL,IBU1
+01DD  06 10                   LD      B,10h
+01DF  CD C8 05                CALL    CMPNAME
+01E2  C8                      RET     Z
+01E3  CD 6A 04                CALL    SERSP
+01E6  F6 FF                   OR      0FFh
+01E8  C9                      RET
+                      CMDV_VERIFY:
+01E9  11 02 02                LD      DE,VERMES
+01EC  CD A4 06                CALL    MSG_NAME
+01EF  CD 86 02                CALL    VERFY
+01F2  D8                      RET     C
+01F3  11 14 02                LD      DE,OKMES
+01F6  C3 AC 06                JP      NLMSG
+01F9  4C 6F 61 64 ..  LOAMES: DEFB    "Loading ",0Dh
+0202  56 65 72 69 ..  VERMES: DEFB    "Verifying ",0Dh
+020D  46 6F 75 6E ..  FOUMES: DEFB    "Found ",0Dh
+0214  4F 4B 0D        OKMES:  DEFB    "OK",0Dh
+0217  3E 4A           CMD_J:  LD      A,4Ah                   ; Kommando J adr
+0219  CD 44 05                CALL    IN_HEXADR
+021C  E9                      JP      (HL)
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Kassetten-Grundroutinen WRINF/WRDAT/RDINF/RDDAT/VERFY
+                      ; ------------------------------------------------------------------------------
+                      ;  Kassettenformat wie beim SB-1510 (gleicher Code): Bit 1 = langer Puls,
+                      ;  Bit 0 = kurzer Puls, Byte = Startbit 1 + 8 Bits (höchstes zuerst),
+                      ;  Prüfsumme = Anzahl der 1-Bits, jeder Block zweimal. Bandmarke: Kopf
+                      ;  10000 Nullen, 40 Einsen, 40 Nullen, 1; Daten 11000 Nullen, 20 Einsen,
+                      ;  20 Nullen, 1. Die Prüfsumme steht hier in den Operanden von WR_CKSUM
+                      ;  und VF_CKSUM statt in Variablen.
+                      ;  WRINF/WRDAT/RDINF/RDDAT/VERFY: D = Art (01h/02h/04h/08h), Kopf 128
+                      ;  Bytes ab IBUFE, Daten nach SIZE/DTADR (GET_SIZEADR). C bei Fehler oder
+                      ;  BREAK.
+                      ; <- aufgerufen von 019Dh
+021D  E7              WRINF:  RST     20h
+021E  EF                      RST     28h
+021F  16 01                   LD      D,01h
+0221  21 80 11                LD      HL,IBUFE
+0224  01 80 00                LD      BC,0080h
+                      CMT_WRITE:
+0227  CD E2 03                CALL    CKSUM
+022A  CD 16 04                CALL    CMT_READY
+022D  38 4B                   JR      C,CMT_STOPRET
+022F  CB 42                   BIT     0,D
+0231  28 0B                   JR      Z,CMT_WRBLK
+0233  D5                      PUSH    DE
+0234  11 E9 05                LD      DE,WRTMES
+0237  CD A4 06                CALL    MSG_NAME
+023A  D1                      POP     DE
+023B  CD C2 04                CALL    TSPE
+                      CMT_WRBLK:
+023E  CD 86 03                CALL    WRGAP_TM
+0241  CD 9B 02                CALL    WRBLK
+0244  38 34                   JR      C,CMT_STOPRET
+0246  CB 4A                   BIT     1,D
+0248  C4 C2 04                CALL    NZ,TSPE
+024B  20 2D                   JR      NZ,CMT_STOPRET
+024D  C9                      RET
+                      ; <- aufgerufen von 01A0h
+024E  E7              WRDAT:  RST     20h
+024F  EF                      RST     28h
+0250  16 02                   LD      D,02h
+0252  CD 57 02                CALL    GET_SIZEADR
+0255  18 D0                   JR      CMT_WRITE
+                      ; <- aufgerufen von 0252h, 0281h, 028Ah
+                      GET_SIZEADR:
+0257  ED 4B 92 11             LD      BC,(IBU18)
+025B  2A 94 11                LD      HL,(DTADR)
+025E  C9                      RET
+                      ; <- aufgerufen von 01AFh
+025F  E7              RDINF:  RST     20h
+0260  EF                      RST     28h
+0261  16 04                   LD      D,04h
+0263  21 80 11                LD      HL,IBUFE
+0266  01 80 00                LD      BC,0080h
+                      CMT_READ:
+0269  CD 16 04                CALL    CMT_READY
+026C  D4 59 10                CALL    NC,CMT_SEEK
+026F  D4 CC 02                CALL    NC,RDBLK
+                      CMT_RDDONE:
+0272  38 06                   JR      C,CMT_STOPRET
+0274  CB 5A                   BIT     3,D
+0276  C8                      RET     Z
+0277  CD 6A 04                CALL    SERSP
+                      CMT_STOPRET:
+027A  C3 53 10                JP      CMT_STOPAF
+                      ; <- aufgerufen von 01C9h
+027D  E7              RDDAT:  RST     20h
+027E  EF                      RST     28h
+027F  16 08                   LD      D,08h
+0281  CD 57 02                CALL    GET_SIZEADR
+0284  18 E3                   JR      CMT_READ
+                      ; <- aufgerufen von 01EFh
+0286  E7              VERFY:  RST     20h
+0287  EF                      RST     28h
+0288  16 08                   LD      D,08h
+028A  CD 57 02                CALL    GET_SIZEADR
+028D  CD E2 03                CALL    CKSUM
+0290  CD 16 04                CALL    CMT_READY
+0293  D4 59 10                CALL    NC,CMT_SEEK
+0296  D4 19 03                CALL    NC,VFBLK
+0299  18 D7                   JR      CMT_RDDONE
+                      ; <- aufgerufen von 0241h
+029B  1E 02           WRBLK:  LD      E,02h
+                      WRBLK_COPY:
+029D  C5                      PUSH    BC
+029E  E5                      PUSH    HL
+                      WRBLK_BYTE:
+029F  7E                      LD      A,(HL)
+02A0  CD 4E 03                CALL    WRBYTE
+02A3  CD 31 05                CALL    BRK
+02A6  38 18                   JR      C,BLK_RET
+02A8  23                      INC     HL
+02A9  0B                      DEC     BC
+02AA  78                      LD      A,B
+02AB  B1                      OR      C
+02AC  20 F1                   JR      NZ,WRBLK_BYTE
+                      WR_CKSUM:
+02AE  21 00 00                LD      HL,0000h
+02B1  7C                      LD      A,H
+02B2  CD 4E 03                CALL    WRBYTE
+02B5  7D                      LD      A,L
+02B6  CD 4E 03                CALL    WRBYTE
+02B9  CD FE 04                CALL    WR1BIT
+02BC  1D                      DEC     E
+02BD  20 04                   JR      NZ,WRBLK_GAP
+02BF  AF                      XOR     A
+                      BLK_RET:
+02C0  E1                      POP     HL
+02C1  C1                      POP     BC
+02C2  C9                      RET
+                      WRBLK_GAP:
+02C3  CD E2 04                CALL    WR0BIT
+02C6  10 FB                   DJNZ    WRBLK_GAP
+02C8  E1                      POP     HL
+02C9  C1                      POP     BC
+02CA  18 D1                   JR      WRBLK_COPY
+                      ;  RDBLK – Block lesen, bei Prüfsummenfehler die zweite Kopie versuchen;
+                      ;  beide falsch: "Check sum error", A = FFh, C.
+                      ; <- aufgerufen von 026Fh
+02CC  1E 02           RDBLK:  LD      E,02h
+02CE  C5                      PUSH    BC
+02CF  E5                      PUSH    HL
+                      RDBLK_SYNC:
+02D0  CD 05 04                CALL    EDGE
+02D3  38 EB                   JR      C,BLK_RET
+02D5  CD 19 05                CALL    DLY_BIT
+02D8  DB E1                   IN      A,(PPI_B)
+02DA  E6 40                   AND     40h
+02DC  28 F2                   JR      Z,RDBLK_SYNC
+02DE  21 00 00                LD      HL,0000h
+02E1  22 AF 02                LD      (WR_CKSUM+1),HL
+02E4  E1                      POP     HL
+02E5  C1                      POP     BC
+02E6  C5                      PUSH    BC
+02E7  E5                      PUSH    HL
+                      RDBLK_BYTE:
+02E8  CD 5F 03                CALL    RDBYTE
+02EB  38 D3                   JR      C,BLK_RET
+02ED  77                      LD      (HL),A
+02EE  23                      INC     HL
+02EF  0B                      DEC     BC
+02F0  78                      LD      A,B
+02F1  B1                      OR      C
+02F2  20 F4                   JR      NZ,RDBLK_BYTE
+02F4  2A AF 02                LD      HL,(WR_CKSUM+1)
+02F7  CD 5F 03                CALL    RDBYTE
+02FA  38 C4                   JR      C,BLK_RET
+02FC  4F                      LD      C,A
+02FD  CD 5F 03                CALL    RDBYTE
+0300  38 BE                   JR      C,BLK_RET
+0302  BD                      CP      L
+0303  20 06                   JR      NZ,RDBLK_RETRY
+0305  79                      LD      A,C
+0306  BC                      CP      H
+0307  3E 00                   LD      A,00h
+0309  28 B5                   JR      Z,BLK_RET
+                      RDBLK_RETRY:
+030B  1D                      DEC     E
+030C  20 C2                   JR      NZ,RDBLK_SYNC
+                      CMT_CKERR:
+030E  11 00 06                LD      DE,CKSMES
+0311  CD AC 06                CALL    NLMSG
+0314  3E FF                   LD      A,0FFh
+0316  37                      SCF
+0317  18 A7                   JR      BLK_RET
+                      ; <- aufgerufen von 0296h
+0319  1E 02           VFBLK:  LD      E,02h
+                      VFBLK_COPY:
+031B  C5                      PUSH    BC
+031C  E5                      PUSH    HL
+                      VFBLK_SYNC:
+031D  CD 05 04                CALL    EDGE
+0320  38 9E                   JR      C,BLK_RET
+0322  CD 19 05                CALL    DLY_BIT
+0325  DB E1                   IN      A,(PPI_B)
+0327  E6 40                   AND     40h
+0329  28 F2                   JR      Z,VFBLK_SYNC
+                      VFBLK_BYTE:
+032B  CD 5F 03                CALL    RDBYTE
+032E  38 90                   JR      C,BLK_RET
+0330  BE                      CP      (HL)
+0331  20 DB                   JR      NZ,CMT_CKERR
+0333  23                      INC     HL
+0334  0B                      DEC     BC
+0335  78                      LD      A,B
+0336  B1                      OR      C
+0337  20 F2                   JR      NZ,VFBLK_BYTE
+                      VF_CKSUM:
+0339  21 00 00                LD      HL,0000h
+033C  CD 5F 03                CALL    RDBYTE
+033F  BC                      CP      H
+0340  20 CC                   JR      NZ,CMT_CKERR
+0342  CD 5F 03                CALL    RDBYTE
+0345  BD                      CP      L
+0346  20 C6                   JR      NZ,CMT_CKERR
+0348  1D                      DEC     E
+0349  E1                      POP     HL
+034A  C1                      POP     BC
+034B  C8                      RET     Z
+034C  18 CD                   JR      VFBLK_COPY
+                      ; <- aufgerufen von 02A0h, 02B2h, 02B6h
+034E  C5              WRBYTE: PUSH    BC
+034F  06 08                   LD      B,08h
+0351  CD FE 04                CALL    WR1BIT
+                      WRBYTE_BIT:
+0354  07                      RLCA
+0355  DC FE 04                CALL    C,WR1BIT
+0358  D4 E2 04                CALL    NC,WR0BIT
+035B  10 F7                   DJNZ    WRBYTE_BIT
+035D  C1                      POP     BC
+035E  C9                      RET
+                      ;  RDBYTE – ein Byte lesen: je Bit Flanke abwarten, nach DLY_BIT den Pegel
+                      ;  prüfen (1 = langer Puls), 1-Bits für die Prüfsumme zählen.
+                      ; <- aufgerufen von 02E8h, 02F7h, 02FDh, 032Bh, 033Ch, 0342h
+035F  E5              RDBYTE: PUSH    HL
+0360  21 00 08                LD      HL,0800h
+                      RDBYTE_BIT:
+0363  CD 05 04                CALL    EDGE
+0366  38 1C                   JR      C,RDBYTE_RET
+0368  CD 19 05                CALL    DLY_BIT
+036B  DB E1                   IN      A,(PPI_B)
+036D  E6 40                   AND     40h
+036F  28 0A                   JR      Z,RDBYTE_SHIFT
+0371  E5                      PUSH    HL
+0372  2A AF 02                LD      HL,(WR_CKSUM+1)
+0375  23                      INC     HL
+0376  22 AF 02                LD      (WR_CKSUM+1),HL
+0379  E1                      POP     HL
+037A  37                      SCF
+                      RDBYTE_SHIFT:
+037B  CB 15                   RL      L
+037D  25                      DEC     H
+037E  20 E3                   JR      NZ,RDBYTE_BIT
+0380  CD 05 04                CALL    EDGE
+0383  7D                      LD      A,L
+                      RDBYTE_RET:
+0384  E1                      POP     HL
+0385  C9                      RET
+                      ; <- aufgerufen von 023Eh
+                      WRGAP_TM:
+0386  C5                      PUSH    BC
+0387  E5                      PUSH    HL
+0388  01 F8 2A                LD      BC,2AF8h
+038B  21 14 14                LD      HL,1414h
+038E  CB 4A                   BIT     1,D
+0390  20 04                   JR      NZ,GAP_ZEROS
+0392  01 10 27                LD      BC,2710h
+0395  29                      ADD     HL,HL
+                      GAP_ZEROS:
+0396  CD E2 04                CALL    WR0BIT
+0399  0B                      DEC     BC
+039A  78                      LD      A,B
+039B  B1                      OR      C
+039C  20 F8                   JR      NZ,GAP_ZEROS
+                      GAP_ONES:
+039E  CD FE 04                CALL    WR1BIT
+03A1  25                      DEC     H
+03A2  20 FA                   JR      NZ,GAP_ONES
+                      GAP_ZEROS2:
+03A4  CD E2 04                CALL    WR0BIT
+03A7  2D                      DEC     L
+03A8  20 FA                   JR      NZ,GAP_ZEROS2
+03AA  CD FE 04                CALL    WR1BIT
+                      POP_HL_BC_RET:
+03AD  E1                      POP     HL
+03AE  C1                      POP     BC
+03AF  C9                      RET
+                      ;  RDTMARK – Bandmarke suchen: 40 (Kopf) bzw. 20 (Daten) Einsen in Folge,
+                      ;  dann ebenso viele Nullen.
+                      RDTMARK:
+03B0  E5                      PUSH    HL
+03B1  2E 14                   LD      L,14h
+03B3  CB 5A                   BIT     3,D
+03B5  20 02                   JR      NZ,TMARK_ONES
+03B7  CB 05                   RLC     L
+                      TMARK_ONES:
+03B9  65                      LD      H,L
+                      TMARK_ONES_LP:
+03BA  CD 05 04                CALL    EDGE
+03BD  38 21                   JR      C,TMARK_RET
+03BF  CD 19 05                CALL    DLY_BIT
+03C2  DB E1                   IN      A,(PPI_B)
+03C4  E6 40                   AND     40h
+03C6  28 F1                   JR      Z,TMARK_ONES
+03C8  25                      DEC     H
+03C9  20 EF                   JR      NZ,TMARK_ONES_LP
+03CB  65                      LD      H,L
+                      TMARK_ZEROS:
+03CC  CD 05 04                CALL    EDGE
+03CF  38 0F                   JR      C,TMARK_RET
+03D1  CD 19 05                CALL    DLY_BIT
+03D4  DB E1                   IN      A,(PPI_B)
+03D6  E6 40                   AND     40h
+03D8  20 DF                   JR      NZ,TMARK_ONES
+03DA  25                      DEC     H
+03DB  20 EF                   JR      NZ,TMARK_ZEROS
+03DD  CD 05 04                CALL    EDGE
+                      TMARK_RET:
+03E0  E1                      POP     HL
+03E1  C9                      RET
+                      ;  CKSUM – Anzahl der 1-Bits von BC Bytes ab HL in die Operanden von
+                      ;  WR_CKSUM und VF_CKSUM.
+                      ; <- aufgerufen von 0227h, 028Dh
+03E2  C5              CKSUM:  PUSH    BC
+03E3  E5                      PUSH    HL
+03E4  D5                      PUSH    DE
+03E5  11 00 00                LD      DE,0000h
+                      CKSUM_LP:
+03E8  78                      LD      A,B
+03E9  B1                      OR      C
+03EA  20 0A                   JR      NZ,CKSUM_BYTE
+03EC  EB                      EX      DE,HL
+03ED  22 AF 02                LD      (WR_CKSUM+1),HL
+03F0  22 3A 03                LD      (VF_CKSUM+1),HL
+03F3  D1                      POP     DE
+03F4  18 B7                   JR      POP_HL_BC_RET
+                      CKSUM_BYTE:
+03F6  7E                      LD      A,(HL)
+03F7  C5                      PUSH    BC
+03F8  06 08                   LD      B,08h
+                      CKSUM_BIT:
+03FA  07                      RLCA
+03FB  30 01                   JR      NC,CKSUM_NEXT
+03FD  13                      INC     DE
+                      CKSUM_NEXT:
+03FE  10 FA                   DJNZ    CKSUM_BIT
+0400  C1                      POP     BC
+0401  23                      INC     HL
+0402  0B                      DEC     BC
+0403  18 E3                   JR      CKSUM_LP
+                      ;  EDGE – auf eine Flanke des Lesesignals (PPI Port B Bit 6) warten;
+                      ;  C = BREAK gedrückt.
+                      ; <- aufgerufen von 02D0h, 031Dh, 0363h, 0380h, 03BAh, 03CCh, 03DDh
+0405  DB E1           EDGE:   IN      A,(PPI_B)
+0407  2F                      CPL
+0408  07                      RLCA
+0409  D8                      RET     C
+040A  07                      RLCA
+040B  30 F8                   JR      NC,EDGE
+                      EDGE_LOW:
+040D  DB E1                   IN      A,(PPI_B)
+040F  2F                      CPL
+0410  07                      RLCA
+0411  D8                      RET     C
+0412  07                      RLCA
+0413  38 F8                   JR      C,EDGE_LOW
+0415  C9                      RET
+                      ;  CMT_READY – Kassette eingelegt? Sonst "Set tape" und Fach öffnen; beim
+                      ;  Schreiben Schreibschutz prüfen ("Write protect"), dann PLAY (beim
+                      ;  Schreiben mit Aufnahme). Port B Bit 4: Schreibschutz, Bit 5: keine
+                      ;  Kassette.
+                      ; <- aufgerufen von 022Ah, 0269h, 0290h
+                      CMT_READY:
+0416  CD 36 05                CALL    KBSET
+0419  DB E1                   IN      A,(PPI_B)
+041B  E6 20                   AND     20h
+041D  28 18                   JR      Z,CMTR_WPCHK
+041F  D5                      PUSH    DE
+0420  11 E0 05                LD      DE,SETMES
+0423  CD AC 06                CALL    NLMSG
+0426  D1                      POP     DE
+0427  CD 4B 04                CALL    OPEN
+                      CMTR_WAIT:
+042A  CD 31 05                CALL    BRK
+042D  D8                      RET     C
+042E  DB E1                   IN      A,(PPI_B)
+0430  E6 20                   AND     20h
+0432  20 F6                   JR      NZ,CMTR_WAIT
+0434  CD DC 04                CALL    DEL1M
+                      CMTR_WPCHK:
+0437  3E 03                   LD      A,03h
+0439  A2                      AND     D
+043A  28 1E                   JR      Z,CMTR_PLAY
+043C  DB E1                   IN      A,(PPI_B)
+043E  E6 10                   AND     10h
+0440  28 14                   JR      Z,CMTR_REC
+0442  D5                      PUSH    DE
+0443  11 F2 05                LD      DE,WPRMES
+0446  CD AC 06                CALL    NLMSG
+0449  D1                      POP     DE
+044A  37                      SCF
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Kassettenmechanik: OPEN, SERSP, MSTOP, FFWD, Zeitschleifen
+                      ; ------------------------------------------------------------------------------
+                      ; <- aufgerufen von 0427h
+044B  3E 08           OPEN:   LD      A,08h
+044D  D3 E3                   OUT     (PPI_CTL),A
+044F  CD DC 04                CALL    DEL1M
+0452  3C                      INC     A
+0453  D3 E3                   OUT     (PPI_CTL),A
+0455  C9                      RET
+                      CMTR_REC:
+0456  3E 0C                   LD      A,0Ch
+0458  D3 E3                   OUT     (PPI_CTL),A
+                      CMTR_PLAY:
+045A  7A                      LD      A,D
+045B  E6 05                   AND     05h
+045D  C4 99 04                CALL    NZ,CMT_STOPCMD
+0460  CD A8 04                CALL    CMT_PREPULSE
+0463  3A D0 10                LD      A,(MODE)
+0466  CB D7                   SET     2,A
+0468  18 34                   JR      CMT_SETCMD
+                      ;  SERSP – stoppen, schnell vorspulen und warten, bis das Lesesignal
+                      ;  4C00h Abfragen lang kein Wechselmuster (letzte 6 Bits 2Ah/15h) mehr
+                      ;  zeigt, vermutlich also bis hinter den aktuellen Block. C = BREAK.
+                      ; <- aufgerufen von 01E3h, 0277h
+046A  E7              SERSP:  RST     20h
+046B  CD 95 04                CALL    MSTOP
+046E  CD B2 04                CALL    FFWD
+                      SERSP_RESET:
+0471  01 00 4C                LD      BC,4C00h
+                      SERSP_LP:
+0474  DB E1                   IN      A,(PPI_B)
+0476  07                      RLCA
+0477  3F                      CCF
+0478  D8                      RET     C
+0479  07                      RLCA
+047A  CB 12                   RL      D
+047C  7A                      LD      A,D
+047D  E6 3F                   AND     3Fh
+047F  FE 2A                   CP      2Ah                     ; '*'
+0481  28 0A                   JR      Z,SERSP_HIT
+0483  FE 15                   CP      15h
+0485  28 06                   JR      Z,SERSP_HIT
+0487  0B                      DEC     BC
+0488  78                      LD      A,B
+0489  B1                      OR      C
+048A  20 E8                   JR      NZ,SERSP_LP
+048C  C9                      RET
+                      SERSP_HIT:
+048D  04                      INC     B
+048E  78                      LD      A,B
+048F  FE 4C                   CP      4Ch                     ; 'L'
+0491  30 DE                   JR      NC,SERSP_RESET
+0493  18 DF                   JR      SERSP_LP
+                      ;  Laufwerk: PPI Port A Bit 0 REW, 1 FF, 2 PLAY, 3 STOP (Flanke über BLK1
+                      ;  mit MODE), Port C über Bit-Set/Reset: Bit 4 Fach öffnen (OPEN), Bit 5
+                      ;  wird vor PLAY/FF gepulst (CMT_PREPULSE), Bit 6 Aufnahme.
+                      ; <- aufgerufen von 046Bh, 1054h
+0495  3E 0D           MSTOP:  LD      A,0Dh
+0497  D3 E3                   OUT     (PPI_CTL),A
+                      ; <- aufgerufen von 045Dh
+                      CMT_STOPCMD:
+0499  3A D0 10                LD      A,(MODE)
+049C  CB DF                   SET     3,A
+                      CMT_SETCMD:
+049E  CD A4 04                CALL    BLK1
+                      ; <- aufgerufen von 04B5h, 04BBh
+                      CMT_IDLE:
+04A1  3A D0 10                LD      A,(MODE)
+                      ; <- aufgerufen von 049Eh
+04A4  D3 E0           BLK1:   OUT     (PPI_A),A
+04A6  18 2E                   JR      DLY_SHORT
+                      ; <- aufgerufen von 0460h, 04B8h
+                      CMT_PREPULSE:
+04A8  3E 0B                   LD      A,0Bh
+04AA  CD AE 04                CALL    PPC_OUT
+04AD  3D                      DEC     A
+                      ; <- aufgerufen von 04AAh
+                      PPC_OUT:
+04AE  D3 E3                   OUT     (PPI_CTL),A
+04B0  18 24                   JR      DLY_SHORT
+                      ; <- aufgerufen von 046Eh
+04B2  CD 36 05        FFWD:   CALL    KBSET
+04B5  CD A1 04                CALL    CMT_IDLE
+04B8  CD A8 04        HIGHSC: CALL    CMT_PREPULSE
+04BB  CD A1 04                CALL    CMT_IDLE
+04BE  CB C7                   SET     0,A
+04C0  18 DC                   JR      CMT_SETCMD
+                      ;  TSPE – lange Wartezeit nach dem Schreiben (Port C Bit 7 aus). DLY_BC:
+                      ;  BC Durchläufe zu 256, DLY_SHORT: einer, DEL1M: 796h.
+                      ; <- aufgerufen von 023Bh, 0248h
+04C2  E7              TSPE:   RST     20h
+04C3  3E 0E                   LD      A,0Eh
+04C5  D3 E3                   OUT     (PPI_CTL),A
+04C7  01 56 1E                LD      BC,1E56h
+                      ; <- aufgerufen von 0787h
+04CA  F5              DLY_BC: PUSH    AF
+                      DLY_BC_LP:
+04CB  AF                      XOR     A
+                      DLY_BC_IN:
+04CC  3D                      DEC     A
+04CD  20 FD                   JR      NZ,DLY_BC_IN
+04CF  0B                      DEC     BC
+04D0  78                      LD      A,B
+04D1  B1                      OR      C
+04D2  20 F7                   JR      NZ,DLY_BC_LP
+04D4  F1                      POP     AF
+04D5  C9                      RET
+                      DLY_SHORT:
+04D6  E7                      RST     20h
+04D7  01 01 00                LD      BC,0001h
+04DA  18 EE                   JR      DLY_BC
+                      ; <- aufgerufen von 0434h, 044Fh, 1059h
+04DC  E7              DEL1M:  RST     20h
+04DD  01 96 07                LD      BC,0796h
+04E0  18 E8                   JR      DLY_BC
+                      ;  WR0BIT / WR1BIT – kurzen bzw. langen Puls auf Port C Bit 7; die Dauer
+                      ;  steht im Operanden von DLY_A. DLY_BIT: Abtastzeitpunkt (Operand von
+                      ;  DLY_BITSET = Z80KT).
+                      ; <- aufgerufen von 02C3h, 0358h, 0396h, 03A4h
+04E2  F5              WR0BIT: PUSH    AF
+04E3  3E 0F                   LD      A,0Fh
+04E5  D3 E3                   OUT     (PPI_CTL),A
+04E7  0A                      LD      A,(BC)
+04E8  3E 2A                   LD      A,2Ah                   ; '*'
+04EA  32 21 05                LD      (DLY_A+1),A
+04ED  CD 20 05                CALL    DLY_A
+04F0  3E 0E                   LD      A,0Eh
+04F2  D3 E3                   OUT     (PPI_CTL),A
+04F4  3E 25                   LD      A,25h                   ; '%'
+04F6  32 21 05                LD      (DLY_A+1),A
+04F9  CD 20 05                CALL    DLY_A
+04FC  F1                      POP     AF
+04FD  C9                      RET
+                      ; <- aufgerufen von 02B9h, 0351h, 0355h, 039Eh, 03AAh
+04FE  F5              WR1BIT: PUSH    AF
+04FF  3E 0F                   LD      A,0Fh
+0501  D3 E3                   OUT     (PPI_CTL),A
+0503  3E 5A                   LD      A,5Ah                   ; 'Z'
+0505  32 21 05                LD      (DLY_A+1),A
+0508  CD 20 05                CALL    DLY_A
+050B  3E 0E                   LD      A,0Eh
+050D  D3 E3                   OUT     (PPI_CTL),A
+050F  3E 55                   LD      A,55h                   ; 'U'
+0511  32 21 05                LD      (DLY_A+1),A
+0514  CD 20 05                CALL    DLY_A
+0517  F1                      POP     AF
+0518  C9                      RET
+                      ; <- aufgerufen von 02D5h, 0322h, 0368h, 03BFh, 03D1h
+                      DLY_BIT:
+0519  7C                      LD      A,H
+051A  7D                      LD      A,L
+                      DLY_BITSET:
+051B  3E 41                   LD      A,41h                   ; 'A'
+051D  32 21 05                LD      (DLY_A+1),A
+                      ; <- aufgerufen von 04EDh, 04F9h, 0508h, 0514h
+0520  3E FF           DLY_A:  LD      A,0FFh
+                      DLY_A_LP:
+0522  3D                      DEC     A
+0523  C2 22 05                JP      NZ,DLY_A_LP
+0526  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  BRKEY/BRK/KBSET – BREAK-Taste
+                      ; ------------------------------------------------------------------------------
+                      ; <- aufgerufen von 013Bh
+0527  CD 36 05        BRKEY:  CALL    KBSET
+052A  DB EA                   IN      A,(PIO_BD)
+052C  E6 80                   AND     80h
+052E  C3 1F 0E                JP      KINT
+                      ; <- aufgerufen von 02A3h, 042Ah, 0B8Fh
+0531  DB EA           BRK:    IN      A,(PIO_BD)
+0533  2F                      CPL
+0534  07                      RLCA
+0535  C9                      RET
+                      ; <- aufgerufen von 0416h, 04B2h, 0527h, 0B8Ch
+0536  DB E8           KBSET:  IN      A,(PIO_AD)
+0538  E6 E0                   AND     0E0h
+053A  F6 13                   OR      13h
+053C  D3 E8                   OUT     (PIO_AD),A
+053E  C9                      RET
+                      ;  IN_START / IN_END – Start- bzw. Endadresse abfragen (Prompt "S"/"E";
+                      ;  "DEFB 21h" verschluckt den zweiten LD). IN_HEXADR: Adresse mit Prompt
+                      ;  A, bis sie gültig ist. ASK_ADR: Prompt (Operand von ASK_PROMPT) und
+                      ;  "-adr.$" ausgeben, Zeile lesen; DE = ADR_IN, Z = leere Eingabe.
+                      ; <- aufgerufen von 011Dh, 0172h
+                      IN_START:
+053F  3E 53                   LD      A,53h                   ; 'S'
+0541  21                      DEFB    21h                     ; Trick: Opcode 21h verschluckt den folgenden Befehl
+                      ; <- aufgerufen von 0121h, 0179h
+0542  3E 45           IN_END: LD      A,45h                   ; 'E'
+                      ; <- aufgerufen von 00FBh, 0219h
+                      IN_HEXADR:
+0544  32 54 05                LD      (ASK_PROMPT+1),A
+                      ASKADR_RETRY:
+0547  CD 50 05                CALL    ASK_ADR
+054A  CD A2 05                CALL    HLHEX
+054D  38 F8                   JR      C,ASKADR_RETRY
+054F  C9                      RET
+                      ; <- aufgerufen von 0190h, 0547h
+                      ASK_ADR:
+0550  CD 57 07                CALL    NL
+                      ASK_PROMPT:
+0553  3E FF                   LD      A,0FFh
+0555  CD 3C 06                CALL    PRNT
+0558  11 D9 05                LD      DE,ADRMES
+055B  CD B5 06                CALL    MSG
+055E  CD ED 00                CALL    GETCMD
+0561  11 07 11                LD      DE,ADR_IN
+0564  1A                      LD      A,(DE)
+0565  FE 0D                   CP      0Dh
+0567  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Hex-Ausgabe und -Eingabe: PRTHL, PRTHX, ASC, HEX, HLHEX, 2HEX
+                      ; ------------------------------------------------------------------------------
+                      ; <- aufgerufen von 0637h, 09B8h
+0568  7C              PRTHL:  LD      A,H
+0569  CD 6D 05                CALL    PRTHX
+056C  7D                      LD      A,L
+                      ; <- aufgerufen von 0104h, 012Fh, 0569h
+056D  F5              PRTHX:  PUSH    AF
+056E  E6 F0                   AND     0F0h
+0570  0F                      RRCA
+0571  0F                      RRCA
+0572  0F                      RRCA
+0573  0F                      RRCA
+0574  CD 83 05                CALL    ASC
+0577  CD 3C 06                CALL    PRNT
+057A  F1                      POP     AF
+057B  E6 0F                   AND     0Fh
+057D  CD 83 05                CALL    ASC
+0580  C3 3C 06                JP      PRNT
+                      ; <- aufgerufen von 0574h, 057Dh
+0583  E6 0F           ASC:    AND     0Fh
+0585  C6 30                   ADD     A,30h
+0587  FE 3A                   CP      3Ah                     ; ':'
+0589  D8                      RET     C
+058A  C6 07                   ADD     A,07h
+058C  C9                      RET
+                      ;  HEX – ASCII-Zeichen in Hexziffer, C wenn ungültig. HLHEX / _2HEX –
+                      ;  4 bzw. 2 Hexziffern ab (DE) nach HL bzw. A, C bei Fehler.
+                      ; <- aufgerufen von 05B4h, 05C0h
+058D  FE 47           HEX:    CP      47h                     ; 'G'
+058F  3F                      CCF
+0590  D8                      RET     C
+0591  FE 41                   CP      41h                     ; 'A'
+0593  30 0A                   JR      NC,HEX_LETTER
+0595  FE 3A                   CP      3Ah                     ; ':'
+0597  3F                      CCF
+0598  D8                      RET     C
+0599  FE 30                   CP      30h                     ; '0'
+059B  D8                      RET     C
+059C  D6 30                   SUB     30h
+059E  C9                      RET
+                      HEX_LETTER:
+059F  D6 37                   SUB     37h
+05A1  C9                      RET
+                      ; <- aufgerufen von 0195h, 054Ah
+05A2  D5              HLHEX:  PUSH    DE
+05A3  CD B1 05                CALL    _2HEX
+05A6  38 07                   JR      C,HLHEX_RET
+05A8  67                      LD      H,A
+05A9  CD B1 05                CALL    _2HEX
+05AC  38 01                   JR      C,HLHEX_RET
+05AE  6F                      LD      L,A
+                      HLHEX_RET:
+05AF  D1                      POP     DE
+05B0  C9                      RET
+                      ; <- aufgerufen von 0115h, 05A3h, 05A9h
+05B1  C5              _2HEX:  PUSH    BC
+05B2  1A                      LD      A,(DE)
+05B3  13                      INC     DE
+05B4  CD 8D 05                CALL    HEX
+05B7  38 0D                   JR      C,HEX2_RET
+05B9  07                      RLCA
+05BA  07                      RLCA
+05BB  07                      RLCA
+05BC  07                      RLCA
+05BD  4F                      LD      C,A
+05BE  1A                      LD      A,(DE)
+05BF  13                      INC     DE
+05C0  CD 8D 05                CALL    HEX
+05C3  38 01                   JR      C,HEX2_RET
+05C5  B1                      OR      C
+                      HEX2_RET:
+05C6  C1                      POP     BC
+05C7  C9                      RET
+                      ;  CMPNAME – Texte ab DE und HL bis 0Dh vergleichen, Z = gleich.
+                      ; <- aufgerufen von 01DFh
+                      CMPNAME:
+05C8  E7                      RST     20h
+                      CMPNAME_LP:
+05C9  1A                      LD      A,(DE)
+05CA  BE                      CP      (HL)
+05CB  C0                      RET     NZ
+05CC  FE 0D                   CP      0Dh
+05CE  C8                      RET     Z
+05CF  23                      INC     HL
+05D0  13                      INC     DE
+05D1  18 F6                   JR      CMPNAME_LP
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  ?CLER/?DINT – Speicher füllen; Meldungstexte
+                      ; ------------------------------------------------------------------------------
+                      ; <- aufgerufen von 007Dh, 06CAh
+05D3  AF              ?CLER:  XOR     A
+05D4  77              ?DINT:  LD      (HL),A
+05D5  23                      INC     HL
+05D6  10 FC                   DJNZ    ?DINT
+05D8  C9                      RET
+05D9  2D 61 64 72 ..  ADRMES: DEFB    "-adr.$",0Dh
+05E0  53 65 74 20 ..  SETMES: DEFB    "Set tape",0Dh
+05E9  57 72 69 74 ..  WRTMES: DEFB    "Writing ",0Dh
+05F2  57 72 69 74 ..  WPRMES: DEFB    "Write protect",0Dh
+0600  43 68 65 63 ..  CKSMES: DEFB    "Check sum error",0Dh
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  GETKY – Taste holen; Zeichenausgabe PRNT/PRNTS/PRNTT, MSG, MSGX
+                      ; ------------------------------------------------------------------------------
+                      ; <- aufgerufen von 0D2Ah
+0610  E7              GETKY:  RST     20h
+0611  CD 37 0E                CALL    PUSHKI
+0614  CD 71 0E                CALL    KEYSCAN
+0617  FE 1E                   CP      1Eh
+0619  C0                      RET     NZ
+061A  AF                      XOR     A
+061B  C9                      RET
+                      ;  ROWCHK_CSR / ROWCHK – Zeile A (bzw. die Cursorzeile) gegen den
+                      ;  Rollbereich: C = außerhalb, Z = letzte Zeile (SCREND). Zeilen 0-24;
+                      ;  der Rollbereich reicht von SCROST-1 bis SCREND.
+                      ;  COLCHK: Z, wenn der Cursor in der letzten Spalte steht (A = letzte
+                      ;  Spalte, Operand von COLCHK_MAX = CH3979).
+                      ; <- aufgerufen von 07DAh, 07F0h, 0803h, 082Ah
+                      ROWCHK_CSR:
+061C  2A D1 10                LD      HL,(DSPXY)
+061F  7C                      LD      A,H
+                      ; <- aufgerufen von 0665h, 0896h
+0620  E7              ROWCHK: RST     20h
+0621  21 0B 00                LD      HL,SCROST
+0624  46                      LD      B,(HL)
+0625  05                      DEC     B
+0626  B8                      CP      B
+0627  D8                      RET     C
+0628  23                      INC     HL
+0629  BE                      CP      (HL)
+062A  C8                      RET     Z
+062B  3F                      CCF
+062C  C9                      RET
+                      ; <- aufgerufen von 065Fh, 07CDh, 07E5h
+062D  2A D1 10        COLCHK: LD      HL,(DSPXY)
+                      COLCHK_MAX:
+0630  3E 4F                   LD      A,4Fh                   ; 'O'
+0632  BD                      CP      L
+0633  C9                      RET
+                      ; <- aufgerufen von 0100h, 0126h
+0634  CD 57 07        PRTADR: CALL    NL
+                      ; <- aufgerufen von 09AFh
+                      PRTHL_SP:
+0637  CD 68 05                CALL    PRTHL
+                      ; <- aufgerufen von 0107h, 012Bh, 0695h
+063A  3E 20           PRNTS:  LD      A,20h                   ; ' '
+                      ;  PRNT – Zeichen ausgeben: unter 10h als Steuerzeichen (?DPCT), sonst ?DSP.
+                      ;  ?DSP: 1Bh = nächster Tabstopp (TABDAT), 1Ah = "00". Im Einfügemodus wird
+                      ;  eingefügt (DSP_INSERT). In der letzten Spalte wird die nächste
+                      ;  Bildschirmzeile zur Fortsetzung der logischen Zeile (MANG, höchstens
+                      ;  LLINE_MAX Fortsetzungen) und gelöscht.
+                      ; <- aufgerufen von 00BEh, 0555h, 0577h, 0CD8h
+063C  FE 10           PRNT:   CP      10h
+063E  DA 14 07                JP      C,?DPCT
+                      ; <- aufgerufen von 0C4Eh
+0641  E7              ?DSP:   RST     20h
+                      ; <- aufgerufen von 064Ch, 08BBh
+                      DSP_CHAR:
+0642  FE 1B                   CP      1Bh
+0644  28 38                   JR      Z,DSP_TAB
+0646  FE 1A                   CP      1Ah
+0648  20 07                   JR      NZ,DSP_PUT
+064A  3E 30                   LD      A,30h                   ; '0'
+064C  CD 42 06                CALL    DSP_CHAR
+064F  3E 30                   LD      A,30h                   ; '0'
+                      DSP_PUT:
+0651  21 5E 0D                LD      HL,CSR_BLINKCNT+1
+0654  CB 66                   BIT     4,(HL)
+0656  C2 CA 07                JP      NZ,DSP_INSERT
+0659  CD 04 09                CALL    ?PONT
+065C  CD 2D 09                CALL    DSPW
+065F  CD 2D 06                CALL    COLCHK
+0662  20 08                   JR      NZ,DSP_NEXT
+0664  7C                      LD      A,H
+0665  CD 20 06                CALL    ROWCHK
+0668  D8                      RET     C
+0669  CD F6 08                CALL    MAGA_NEXT
+                      DSP_NEXT:
+066C  C2 CD 07                JP      NZ,CSR_RIGHT
+066F  2B                      DEC     HL
+0670  7E                      LD      A,(HL)
+                      LLINE_MAX:
+0671  FE 03                   CP      03h
+0673  30 03                   JR      NC,DSP_CONT
+0675  23                      INC     HL
+0676  3C                      INC     A
+0677  77                      LD      (HL),A
+                      DSP_CONT:
+0678  CD CD 07                CALL    CSR_RIGHT
+067B  C3 11 08                JP      DELLN
+                      DSP_TAB:
+067E  ED 5B D1 10             LD      DE,(DSPXY)
+                      DSP_TAB_LP:
+0682  1C                      INC     E
+0683  3A A2 07                LD      A,(CH4080)
+0686  BB                      CP      E
+0687  C8                      RET     Z
+0688  7B                      LD      A,E
+0689  CD D2 0D                CALL    TAB_FIND
+068C  20 F4                   JR      NZ,DSP_TAB_LP
+068E  EB                      EX      DE,HL
+068F  CD 67 08                CALL    INS_OFF
+0692  C3 E1 07                JP      CSR_SET
+                      ;  PRNTT – Leerzeichen bis zur nächsten durch 10 teilbaren Spalte (immer
+                      ;  mindestens eins).
+0695  CD 3A 06        PRNTT:  CALL    PRNTS
+0698  3A D1 10                LD      A,(DSPXY)
+069B  B7                      OR      A
+069C  C8                      RET     Z
+                      PRNTT_LP:
+069D  D6 0A                   SUB     0Ah
+069F  38 F4                   JR      C,PRNTT
+06A1  20 FA                   JR      NZ,PRNTT_LP
+06A3  C9                      RET
+                      ;  MSG_NAME – Meldung DE und Dateinamen (IBU1) ausgeben. NLMSG / MSGX /
+                      ;  MSG – Text bis 0Dh ausgeben (NLMSG mit Zeilenvorschub); MSGX über ?DSP,
+                      ;  Steuerzeichen erscheinen also als Zeichen, MSG über PRNT.
+                      ; <- aufgerufen von 01C6h, 01D4h, 01ECh, 0237h
+                      MSG_NAME:
+06A4  CD AC 06                CALL    NLMSG
+06A7  11 81 11                LD      DE,IBU1
+06AA  18 03                   JR      MSGX
+                      ; <- aufgerufen von 0097h, 0154h, 0311h, 0423h, 0446h, 06A4h
+06AC  CD 57 07        NLMSG:  CALL    NL
+06AF  E7              MSGX:   RST     20h
+06B0  21 41 06                LD      HL,?DSP
+06B3  18 04                   JR      MSG_LP
+                      ; <- aufgerufen von 055Bh
+06B5  E7              MSG:    RST     20h
+06B6  21 3C 06                LD      HL,PRNT
+06B9  1A              MSG_LP: LD      A,(DE)
+06BA  FE 0D                   CP      0Dh
+06BC  C8                      RET     Z
+06BD  CD D0 01                CALL    .HL
+06C0  13                      INC     DE
+06C1  18 F6                   JR      MSG_LP
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  SCRSET, KEYKEY, ?DPCT (Steuerzeichen über die Tabelle CTLTAB)
+                      ; ------------------------------------------------------------------------------
+                      ;  SCRSET – MANG löschen, VRAM-Startadresse und Länge des Rollbereichs
+                      ;  berechnen (Operanden SCR_START/SCR_LEN in SCROLL), Bildschirm löschen.
+                      ; <- aufgerufen von 0989h
+06C3  E7              SCRSET: RST     20h
+06C4  EF                      RST     28h
+06C5  21 D3 10                LD      HL,MANG
+06C8  06 1C                   LD      B,1Ch
+06CA  CD D3 05                CALL    ?CLER
+06CD  21 0B 00                LD      HL,SCROST
+06D0  E5                      PUSH    HL
+06D1  66                      LD      H,(HL)
+06D2  25                      DEC     H
+06D3  2E 00                   LD      L,00h
+06D5  CD 07 09                CALL    XY2VRAM
+06D8  22 9C 07                LD      (SCR_START+1),HL
+06DB  E3                      EX      (SP),HL
+06DC  23                      INC     HL
+06DD  66                      LD      H,(HL)
+06DE  2E 00                   LD      L,00h
+06E0  CD 07 09                CALL    XY2VRAM
+06E3  D1                      POP     DE
+06E4  B7                      OR      A
+06E5  ED 52                   SBC     HL,DE
+06E7  22 9F 07                LD      (SCR_LEN+1),HL
+06EA  C3 FD 07                JP      CLS
+                      ;  KEYKEY – ist überhaupt eine Taste gedrückt (PIO Port A Bit 4 = 0,
+                      ;  vermutlich alle Zeilen zugleich)? Dann KEYSCAN, sonst NOKKEY: KYBDA = 0, KSTD = FFh
+                      ;  (keine Taste), A = 1Eh.
+                      ; <- aufgerufen von 0C20h, 0D8Bh
+06ED  DB E8           KEYKEY: IN      A,(PIO_AD)
+06EF  CB A7                   RES     4,A
+06F1  D3 E8                   OUT     (PIO_AD),A
+06F3  DB EA                   IN      A,(PIO_BD)
+06F5  DB EA                   IN      A,(PIO_BD)
+06F7  3C                      INC     A
+06F8  F5                      PUSH    AF
+06F9  06 05                   LD      B,05h
+                      KEYKEY_DLY:
+06FB  AF                      XOR     A
+                      KEYKEY_DLYIN:
+06FC  3D                      DEC     A
+06FD  20 FD                   JR      NZ,KEYKEY_DLYIN
+06FF  10 FA                   DJNZ    KEYKEY_DLY
+0701  F1                      POP     AF
+0702  C2 71 0E                JP      NZ,KEYSCAN
+0705  AF              NOKKEY: XOR     A
+0706  21 F1 10                LD      HL,KYBDA
+0709  77                      LD      (HL),A
+070A  3D                      DEC     A
+070B  06 0B                   LD      B,0Bh
+                      NOKKEY_LP:
+070D  23                      INC     HL
+070E  77                      LD      (HL),A
+070F  10 FC                   DJNZ    NOKKEY_LP
+0711  3E 1E                   LD      A,1Eh
+0713  C9                      RET
+                      ;  Steuerzeichen über CTLTAB: 00h Rest der logischen Zeile löschen,
+                      ;  01h Cursor ab (rollt), 02h auf, 03h rechts, 04h links, 05h Home,
+                      ;  06h Bildschirm löschen, 07h DEL, 08h Einfügemodus, 09h Grafikmodus,
+                      ;  0Ah Kleinschrift, 0Bh nichts, 0Ch Invers ein, 0Dh neue Zeile (LETNL),
+                      ;  0Eh Normalmodus, 0Fh Invers aus. 00h-06h beenden den Einfügemodus.
+                      ; <- aufgerufen von 0C6Eh
+0714  E7              ?DPCT:  RST     20h
+0715  21 27 07                LD      HL,CTLTAB
+0718  07                      RLCA
+0719  4F                      LD      C,A
+071A  06 00                   LD      B,00h
+071C  FE 0E                   CP      0Eh
+071E  DC 67 08                CALL    C,INS_OFF
+0721  09                      ADD     HL,BC
+0722  5E                      LD      E,(HL)
+0723  23                      INC     HL
+0724  56                      LD      D,(HL)
+0725  EB                      EX      DE,HL
+0726  E9                      JP      (HL)
+0727  11 08           CTLTAB: DEFW    DELLN
+0729  DA 07                   DEFW    CSR_DOWN
+072B  F0 07                   DEFW    CSR_UP
+072D  CD 07                   DEFW    CSR_RIGHT
+072F  E5 07                   DEFW    CSR_LEFT
+0731  08 08                   DEFW    CSR_HOME
+0733  FD 07                   DEFW    CLS
+0735  2A 08                   DEFW    CTL_DEL
+0737  64 08                   DEFW    CTL_INST
+0739  CC 0F                   DEFW    CTL_09
+073B  C3 0F                   DEFW    CTL_0A
+073D  56 07                   DEFW    NOP_RET
+073F  BA 0F                   DEFW    CTL_0C
+0741  64 07                   DEFW    LETNL
+0743  B1 0F                   DEFW    CTL_0E
+0745  A8 0F                   DEFW    CTL_0F
+                      ;  SCRL_KEYCHK – Z, wenn die Taste Zeile 0Bh Bit 2 gedrückt ist (bremst das
+                      ;  Rollen um SLOW).
+                      ; <- aufgerufen von 077Eh
+                      SCRL_KEYCHK:
+0747  EF                      RST     28h
+0748  DB E8                   IN      A,(PIO_AD)
+074A  E6 E0                   AND     0E0h
+074C  F6 1B                   OR      1Bh
+074E  D3 E8                   OUT     (PIO_AD),A
+0750  DB EA                   IN      A,(PIO_BD)
+0752  DB EA                   IN      A,(PIO_BD)
+0754  E6 04                   AND     04h
+                      NOP_RET:
+0756  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  NL/LETNL – neue Zeile; Bildschirmsteuerung, Rollen, Zeilen löschen
+                      ; ------------------------------------------------------------------------------
+                      ;  NL – neue Zeile, außer der Cursor steht schon am Anfang einer logischen
+                      ;  Zeile. LETNL – Cursor an den Anfang der Zeile hinter der logischen
+                      ;  Zeile; unter dem Rollbereich wird gerollt.
+                      ; <- aufgerufen von 00B9h, 0550h, 0634h, 06ACh
+0757  E7              NL:     RST     20h
+0758  CD 04 09                CALL    ?PONT
+075B  E5                      PUSH    HL
+075C  CD C1 08                CALL    ??TOL
+075F  D1                      POP     DE
+0760  B7                      OR      A
+0761  ED 52                   SBC     HL,DE
+0763  C8                      RET     Z
+0764  E7              LETNL:  RST     20h
+0765  CD D2 08                CALL    ??EOL
+                      NL_DOWN:
+0768  CD 67 08                CALL    INS_OFF
+076B  3A 0C 00                LD      A,(SCREND)
+076E  21 D2 10                LD      HL,DSPXY1
+0771  BE                      CP      (HL)
+0772  D0                      RET     NC
+0773  35                      DEC     (HL)
+0774  BE                      CP      (HL)
+0775  28 07                   JR      Z,SCROLL
+0777  7E                      LD      A,(HL)
+0778  FE 18                   CP      18h
+077A  C8                      RET     Z
+077B  34                      INC     (HL)
+077C  C9                      RET
+                      ; <- aufgerufen von 089Fh
+                      SCROLL_UP:
+077D  E7                      RST     20h
+                      ;  SCROLL – Rollbereich eine Zeile nach oben schieben, unterste Zeile
+                      ;  löschen, MANG mitschieben.
+077E  CD 47 07        SCROLL: CALL    SCRL_KEYCHK
+0781  3A 0F 00                LD      A,(SLOW)
+0784  4F                      LD      C,A
+0785  06 00                   LD      B,00h
+0787  CC CA 04                CALL    Z,DLY_BC
+078A  2A D1 10                LD      HL,(DSPXY)
+078D  3A 0B 00                LD      A,(SCROST)
+0790  3D                      DEC     A
+0791  57                      LD      D,A
+0792  1E 00                   LD      E,00h
+0794  ED 53 D1 10             LD      (DSPXY),DE
+0798  CD 14 08                CALL    CLRLINE
+                      SCR_START:
+079B  11 00 D0                LD      DE,0D000h
+                      SCR_LEN:
+079E  01 80 07                LD      BC,0780h
+                      SCR_WIDTH:
+07A1  21 50 00                LD      HL,0050h
+07A4  19                      ADD     HL,DE
+07A5  CD 3A 09                CALL    VRAM_LDIR
+07A8  EB                      EX      DE,HL
+07A9  3A A2 07                LD      A,(CH4080)
+07AC  47                      LD      B,A
+07AD  CD 48 09                CALL    VRAM_CLR
+07B0  21 0C 00                LD      HL,SCREND
+07B3  7E                      LD      A,(HL)
+07B4  2B                      DEC     HL
+07B5  96                      SUB     (HL)
+07B6  C6 03                   ADD     A,03h
+07B8  4F                      LD      C,A
+07B9  06 00                   LD      B,00h
+07BB  11 D3 10                LD      DE,MANG
+07BE  6E                      LD      L,(HL)
+07BF  26 00                   LD      H,00h
+07C1  19                      ADD     HL,DE
+07C2  54                      LD      D,H
+07C3  5D                      LD      E,L
+07C4  1B                      DEC     DE
+07C5  ED B0                   LDIR
+07C7  36 00                   LD      (HL),00h
+07C9  C9                      RET
+                      DSP_INSERT:
+07CA  CD 6D 08                CALL    INS_CHAR
+                      ;  Cursor: CSR_RIGHT (03h, am Zeilenende in die nächste Zeile), CSR_DOWN
+                      ;  (01h, rollt), CSR_LEFT (04h), CSR_UP (02h), CLS (06h), CSR_HOME (05h).
+                      ;  CSR_SET: HL nach DSPXY (L = Spalte, H = Zeile).
+                      ; <- aufgerufen von 0678h
+                      CSR_RIGHT:
+07CD  CD 2D 06                CALL    COLCHK
+07D0  28 03                   JR      Z,CSR_NEWLINE
+07D2  2C                      INC     L
+07D3  18 0C                   JR      CSR_SET
+                      CSR_NEWLINE:
+07D5  2E 00                   LD      L,00h
+07D7  22 D1 10                LD      (DSPXY),HL
+                      CSR_DOWN:
+07DA  CD 1C 06                CALL    ROWCHK_CSR
+07DD  D8                      RET     C
+07DE  28 9E                   JR      Z,SCROLL
+07E0  24                      INC     H
+                      CSR_SET:
+07E1  22 D1 10                LD      (DSPXY),HL
+07E4  C9                      RET
+                      CSR_LEFT:
+07E5  CD 2D 06                CALL    COLCHK
+07E8  2D                      DEC     L
+07E9  F2 E1 07                JP      P,CSR_SET
+07EC  6F                      LD      L,A
+07ED  22 D1 10                LD      (DSPXY),HL
+07F0  CD 1C 06        CSR_UP: CALL    ROWCHK_CSR
+07F3  D8                      RET     C
+07F4  3A 0B 00                LD      A,(SCROST)
+07F7  3D                      DEC     A
+07F8  BC                      CP      H
+07F9  C8                      RET     Z
+07FA  25                      DEC     H
+07FB  18 E4                   JR      CSR_SET
+07FD  CD 08 08        CLS:    CALL    CSR_HOME
+0800  CD 1B 08        CLS_LP: CALL    CLR_TOEOL
+0803  CD 1C 06                CALL    ROWCHK_CSR
+0806  30 F8                   JR      NC,CLS_LP
+                      ; <- aufgerufen von 07FDh
+                      CSR_HOME:
+0808  3A 0B 00                LD      A,(SCROST)
+080B  3D                      DEC     A
+080C  67                      LD      H,A
+080D  2E 00                   LD      L,00h
+080F  18 D0                   JR      CSR_SET
+0811  2A D1 10        DELLN:  LD      HL,(DSPXY)
+                      ; <- aufgerufen von 0798h
+                      CLRLINE:
+0814  E5                      PUSH    HL
+                      CLRLINE_GO:
+0815  CD 1B 08                CALL    CLR_TOEOL
+                      CSR_RESTORE:
+0818  E1                      POP     HL
+0819  18 C6                   JR      CSR_SET
+                      ; <- aufgerufen von 0800h, 0815h
+                      CLR_TOEOL:
+081B  3E 20                   LD      A,20h                   ; ' '
+081D  32 E3 0C                LD      (CSR_UNDER+1),A
+0820  0E FF                   LD      C,0FFh
+0822  CD EA 08                CALL    LLINE_LENC
+0825  45                      LD      B,L
+0826  EB                      EX      DE,HL
+0827  C3 48 09                JP      VRAM_CLR
+                      ;  CTL_DEL (07h) – Zeichen links vom Cursor löschen, Rest der logischen
+                      ;  Zeile nachziehen.
+                      CTL_DEL:
+082A  CD 1C 06                CALL    ROWCHK_CSR
+082D  38 0A                   JR      C,DEL_GO
+082F  3A 0B 00                LD      A,(SCROST)
+0832  3D                      DEC     A
+0833  BC                      CP      H
+0834  20 03                   JR      NZ,DEL_GO
+0836  AF                      XOR     A
+0837  B5                      OR      L
+0838  C8                      RET     Z
+0839  7D              DEL_GO: LD      A,L
+083A  B7                      OR      A
+083B  20 0F                   JR      NZ,DEL_SHIFT
+083D  5C                      LD      E,H
+083E  CD FB 08                CALL    MAGA
+0841  20 09                   JR      NZ,DEL_SHIFT
+0843  CD 04 09                CALL    ?PONT
+0846  2B                      DEC     HL
+0847  CD 2B 09                CALL    DSPW_SPC
+084A  18 99                   JR      CSR_LEFT
+                      DEL_SHIFT:
+084C  2A D1 10                LD      HL,(DSPXY)
+084F  E5                      PUSH    HL
+0850  CD E8 08                CALL    LLINE_LEN
+0853  D5                      PUSH    DE
+0854  E3                      EX      (SP),HL
+0855  C1                      POP     BC
+0856  1B                      DEC     DE
+0857  CD 3A 09                CALL    VRAM_LDIR
+085A  2B                      DEC     HL
+085B  CD 2B 09                CALL    DSPW_SPC
+085E  E1                      POP     HL
+085F  22 D1 10                LD      (DSPXY),HL
+0862  18 81                   JR      CSR_LEFT
+                      ;  CTL_INST (08h) – Einfügemodus ein: Blinktakt 10h statt 40h im Operanden
+                      ;  von CSR_BLINKCNT, den ?DSP abfragt. INS_OFF schaltet ihn aus. Anders als
+                      ;  beim SB-1510 fügt 08h also kein Leerzeichen ein, sondern schaltet um.
+                      CTL_INST:
+0864  3E 10                   LD      A,10h
+0866  21                      DEFB    21h                     ; Trick: Opcode 21h verschluckt den folgenden Befehl
+                      ; <- aufgerufen von 068Fh, 071Eh, 0768h
+                      INS_OFF:
+0867  3E 40                   LD      A,40h                   ; '@'
+0869  32 5E 0D                LD      (CSR_BLINKCNT+1),A
+086C  C9                      RET
+                      ;  INS_CHAR – Zeichen an der Cursorposition einfügen und den Rest der
+                      ;  logischen Zeile verschieben; fällt hinten ein Zeichen heraus, wird eine
+                      ;  neue Fortsetzungszeile angelegt (höchstens LLINE_MAX).
+                      ; <- aufgerufen von 07CAh
+                      INS_CHAR:
+086D  EF                      RST     28h
+086E  47                      LD      B,A
+086F  2A D1 10                LD      HL,(DSPXY)
+0872  E5                      PUSH    HL
+0873  CD E8 08                CALL    LLINE_LEN
+0876  4D                      LD      C,L
+0877  EB                      EX      DE,HL
+0878  78                      LD      A,B
+0879  41                      LD      B,C
+087A  0E E8                   LD      C,0E8h
+087C  ED 50                   IN      D,(C)
+087E  CB FA                   SET     7,D
+0880  ED 51                   OUT     (C),D
+                      INS_SHIFT:
+0882  5E                      LD      E,(HL)
+0883  77                      LD      (HL),A
+0884  7B                      LD      A,E
+0885  23                      INC     HL
+0886  10 FA                   DJNZ    INS_SHIFT
+0888  CB BA                   RES     7,D
+088A  ED 51                   OUT     (C),D
+088C  FE 20                   CP      20h                     ; ' '
+088E  28 88                   JR      Z,CSR_RESTORE
+0890  4F                      LD      C,A
+0891  3A D2 10                LD      A,(DSPXY1)
+0894  3D                      DEC     A
+0895  5F                      LD      E,A
+0896  CD 20 06                CALL    ROWCHK
+0899  DA 18 08                JP      C,CSR_RESTORE
+089C  C2 AC 08                JP      NZ,INS_NEWROW
+089F  CD 7D 07                CALL    SCROLL_UP
+08A2  1D                      DEC     E
+08A3  E1                      POP     HL
+08A4  25                      DEC     H
+08A5  E5                      PUSH    HL
+08A6  24                      INC     H
+08A7  2E 00                   LD      L,00h
+08A9  22 D1 10                LD      (DSPXY),HL
+                      INS_NEWROW:
+08AC  3A 72 06                LD      A,(LLINE_MAX+1)
+08AF  47                      LD      B,A
+08B0  CD FB 08                CALL    MAGA
+08B3  B8                      CP      B
+08B4  D2 18 08                JP      NC,CSR_RESTORE
+08B7  23                      INC     HL
+08B8  3C                      INC     A
+08B9  77                      LD      (HL),A
+08BA  79                      LD      A,C
+08BB  CD 42 06                CALL    DSP_CHAR
+08BE  C3 15 08                JP      CLRLINE_GO
+                      ;  ??TOL – Cursor an den Anfang der logischen Zeile. ??EOL – hinter ihr
+                      ;  Ende (C Bit 0: dabei die Fortsetzungsmerker löschen). LLINE_LEN: Länge
+                      ;  von der Cursorposition bis zum Ende der logischen Zeile (HL), DE =
+                      ;  VRAM-Adresse des Cursors.
+                      ; <- aufgerufen von 075Ch, 0C7Eh
+08C1  2A D1 10        ??TOL:  LD      HL,(DSPXY)
+08C4  E5                      PUSH    HL
+08C5  5C                      LD      E,H
+08C6  CD FB 08                CALL    MAGA
+08C9  E1                      POP     HL
+08CA  ED 44                   NEG
+08CC  84                      ADD     A,H
+08CD  67                      LD      H,A
+08CE  AF                      XOR     A
+08CF  6F                      LD      L,A
+08D0  18 0F                   JR      EOL_SETCSR
+                      ; <- aufgerufen von 0765h
+08D2  0E 00           ??EOL:  LD      C,00h
+                      ; <- aufgerufen von 08EEh
+08D4  CD F6 08        EOL_LP: CALL    MAGA_NEXT
+08D7  53                      LD      D,E
+08D8  EB                      EX      DE,HL
+08D9  6F                      LD      L,A
+08DA  AF                      XOR     A
+08DB  CB 41                   BIT     0,C
+08DD  28 01                   JR      Z,EOL_STORE
+08DF  12                      LD      (DE),A
+                      EOL_STORE:
+08E0  B5                      OR      L
+                      EOL_SETCSR:
+08E1  22 D1 10                LD      (DSPXY),HL
+08E4  20 EE                   JR      NZ,EOL_LP
+08E6  18 1C                   JR      ?PONT
+                      ; <- aufgerufen von 0850h, 0873h, 0C81h
+                      LLINE_LEN:
+08E8  0E 00                   LD      C,00h
+                      ; <- aufgerufen von 0822h
+                      LLINE_LENC:
+08EA  CD 04 09                CALL    ?PONT
+08ED  E5                      PUSH    HL
+08EE  CD D4 08                CALL    EOL_LP
+08F1  D1                      POP     DE
+08F2  B7                      OR      A
+08F3  ED 52                   SBC     HL,DE
+08F5  C9                      RET
+                      ; <- aufgerufen von 0669h, 08D4h
+                      MAGA_NEXT:
+08F6  2A D1 10                LD      HL,(DSPXY)
+08F9  5C                      LD      E,H
+08FA  1C                      INC     E
+                      ;  MAGA – MANG[E]: Fortsetzungsnummer von Zeile E (0 = Anfang einer
+                      ;  logischen Zeile), Z wenn 0. MAGA_NEXT: für die Zeile unter dem Cursor.
+                      ; <- aufgerufen von 083Eh, 08B0h, 08C6h
+08FB  16 00           MAGA:   LD      D,00h
+08FD  21 D3 10                LD      HL,MANG
+0900  19                      ADD     HL,DE
+0901  7E                      LD      A,(HL)
+0902  B7                      OR      A
+0903  C9                      RET
+                      ;  ?PONT / XY2VRAM – VRAM-Adresse der Position HL (L = Spalte, H = Zeile):
+                      ;  XY_BASE + (H + 1) * Breite + L; XY_BASE = D000h - Breite (CHR40/CHR80).
+                      ; <- aufgerufen von 0659h, 0758h, 0843h, 08EAh, 0CDFh, 0D1Ah, 0D71h
+0904  2A D1 10        ?PONT:  LD      HL,(DSPXY)
+                      ; <- aufgerufen von 06D5h, 06E0h
+                      XY2VRAM:
+0907  C5                      PUSH    BC
+0908  D5                      PUSH    DE
+0909  44                      LD      B,H
+090A  4D                      LD      C,L
+090B  04                      INC     B
+090C  ED 5B A2 07             LD      DE,(CH4080)
+                      XY_BASE:
+0910  21 D8 CF                LD      HL,0CFD8h
+0913  19              XY_LP:  ADD     HL,DE
+0914  10 FD                   DJNZ    XY_LP
+0916  09                      ADD     HL,BC
+0917  D1                      POP     DE
+0918  C1                      POP     BC
+0919  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  DSPRED/DSPW – VRAM lesen/schreiben; CHR80/CHR40 – Zeichenbreite
+                      ; ------------------------------------------------------------------------------
+                      ;  DSPRED / DSPW / VRAM_LDIR / VRAM_CLR – Text-VRAM über PIO Port A Bit 7
+                      ;  einblenden, lesen/schreiben/kopieren/mit Leerzeichen füllen, ausblenden.
+                      ;  DSPW_SPC schreibt ein Leerzeichen.
+                      ; <- aufgerufen von 0D1Dh
+091A  EF              DSPRED: RST     28h
+091B  C5                      PUSH    BC
+091C  0E E8                   LD      C,0E8h
+091E  ED 40                   IN      B,(C)
+0920  CB F8                   SET     7,B
+0922  ED 41                   OUT     (C),B
+0924  7E                      LD      A,(HL)
+                      VRAM_OFF:
+0925  CB B8                   RES     7,B
+0927  ED 41                   OUT     (C),B
+0929  C1                      POP     BC
+092A  C9                      RET
+                      ; <- aufgerufen von 0847h, 085Bh
+                      DSPW_SPC:
+092B  3E 20                   LD      A,20h                   ; ' '
+                      ; <- aufgerufen von 065Ch, 0CE4h
+092D  EF              DSPW:   RST     28h
+092E  C5                      PUSH    BC
+092F  0E E8                   LD      C,0E8h
+0931  ED 40                   IN      B,(C)
+0933  CB F8                   SET     7,B
+0935  ED 41                   OUT     (C),B
+0937  77                      LD      (HL),A
+0938  18 EB                   JR      VRAM_OFF
+                      ; <- aufgerufen von 07A5h, 0857h, 0CA0h
+                      VRAM_LDIR:
+093A  DB E8                   IN      A,(PIO_AD)
+093C  CB FF                   SET     7,A
+                      ; <- aufgerufen von 0C9Bh
+                      VRAM_LDIRA:
+093E  EF                      RST     28h
+093F  D3 E8                   OUT     (PIO_AD),A
+0941  ED B0                   LDIR
+                      VRAM_OFFA:
+0943  E6 3F                   AND     3Fh
+0945  D3 E8                   OUT     (PIO_AD),A
+0947  C9                      RET
+                      ; <- aufgerufen von 07ADh, 0983h
+                      VRAM_CLR:
+0948  EF                      RST     28h
+0949  DB E8                   IN      A,(PIO_AD)
+094B  CB FF                   SET     7,A
+094D  D3 E8                   OUT     (PIO_AD),A
+                      VRAM_CLR_LP:
+094F  36 20                   LD      (HL),20h
+0951  23                      INC     HL
+0952  10 FB                   DJNZ    VRAM_CLR_LP
+0954  DB E8                   IN      A,(PIO_AD)
+0956  18 EB                   JR      VRAM_OFFA
+                      ;  CHR80 / CHR40 – 80 bzw. 40 Zeichen: setzt LLINE_MAX (1/3), CMDD_PERLINE
+                      ;  (16/8), den Befehl bei CHR_MODE (SET/RES 5,A für PIO Port A Bit 5),
+                      ;  CH3979/CH4080 (letzte Spalte/Breite) und XY_BASE; löscht den VRAM
+                      ;  (8 x 256 Bytes), SCRSET, Cursor Home.
+0958  EF              CHR80:  RST     28h
+0959  3E 01                   LD      A,01h
+095B  32 72 06                LD      (LLINE_MAX+1),A
+095E  3E 10                   LD      A,10h
+0960  32 2A 01                LD      (CMDD_PERLINE+1),A
+0963  3E EF                   LD      A,0EFh
+0965  32 7A 09                LD      (CHR_MODE+1),A
+0968  3E 4F                   LD      A,4Fh                   ; 'O'
+096A  21 B0 CF                LD      HL,0CFB0h
+                      CHR_COMMON:
+096D  32 31 06                LD      (CH3979),A
+0970  3C                      INC     A
+0971  32 A2 07                LD      (CH4080),A
+0974  22 11 09                LD      (XY_BASE+1),HL
+0977  DB E8                   IN      A,(PIO_AD)
+                      CHR_MODE:
+0979  CB EF                   SET     5,A
+097B  D3 E8                   OUT     (PIO_AD),A
+097D  21 00 D0                LD      HL,0D000h
+0980  01 08 00                LD      BC,0008h
+                      CHR_CLR:
+0983  CD 48 09                CALL    VRAM_CLR
+0986  0D                      DEC     C
+0987  20 FA                   JR      NZ,CHR_CLR
+0989  CD C3 06                CALL    SCRSET
+098C  C3 08 08                JP      CSR_HOME
+                      ; <- aufgerufen von 0084h
+098F  3E 03           CHR40:  LD      A,03h
+0991  32 72 06                LD      (LLINE_MAX+1),A
+0994  3E 08                   LD      A,08h
+0996  32 2A 01                LD      (CMDD_PERLINE+1),A
+0999  3E AF                   LD      A,0AFh
+099B  32 7A 09                LD      (CHR_MODE+1),A
+099E  3E 27                   LD      A,27h                   ; "'"
+09A0  21 D8 CF                LD      HL,0CFD8h
+09A3  18 C8                   JR      CHR_COMMON
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Registeranzeige (RST 08h-38h, NMI) – danach zurück nach ST
+                      ; ------------------------------------------------------------------------------
+                      ;  REGDUMP – Ziel von RST 08h-38h und NMI: Rücksprungadresse - 1 (= Adresse
+                      ;  des RST-Befehls), AF, BC, DE, HL, diese Adresse und SP hexadezimal
+                      ;  ausgeben, dann ST.
+                      REGDUMP:
+09A5  E3                      EX      (SP),HL
+09A6  2B                      DEC     HL
+09A7  E3                      EX      (SP),HL
+09A8  E5                      PUSH    HL
+09A9  D5                      PUSH    DE
+09AA  C5                      PUSH    BC
+09AB  F5                      PUSH    AF
+09AC  06 05                   LD      B,05h
+                      REGDUMP_LP:
+09AE  E1                      POP     HL
+09AF  CD 37 06                CALL    PRTHL_SP
+09B2  10 FA                   DJNZ    REGDUMP_LP
+09B4  21 00 00                LD      HL,0000h
+09B7  39                      ADD     HL,SP
+09B8  CD 68 05                CALL    PRTHL
+09BB  C3 B1 00                JP      ST
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  XTEMP, TIMST/TIMRD (Uhr), BELL, MELDY/RYTHM (MUSIC)
+                      ; ------------------------------------------------------------------------------
+                      ;  XTEMP – Tempo n (1-7) setzen: TEMPO = 8 - n.
+09BE  F5              XTEMP:  PUSH    AF
+09BF  E6 0F                   AND     0Fh
+09C1  ED 44                   NEG
+09C3  C6 08                   ADD     A,08h
+09C5  32 16 00                LD      (TEMPO),A
+09C8  F1                      POP     AF
+09C9  C9                      RET
+                      ;  TIMST – Uhr stellen: A = 0 vormittags / 1 nachmittags, DE = Sekunden.
+                      ;  8253: Zähler 1 zählt ab A8C0h (12 Stunden in Sekunden) abwärts;
+                      ;  Zähler 0 (7A12h) liefert vermutlich den Sekundentakt, Zähler 2 zählt
+                      ;  vermutlich die Durchläufe von Zähler 1 (Stand in TIM_LAST). TIMRD – Uhr lesen: A = 0/1, DE = Sekunden.
+                      ; <- aufgerufen von 009Fh
+09CA  EF              TIMST:  RST     28h
+09CB  C5                      PUSH    BC
+09CC  32 56 0A                LD      (TIM_PM+1),A
+09CF  ED 53 46 0A             LD      (TIM_START+1),DE
+09D3  3E C1                   LD      A,0C1h
+09D5  D3 E5                   OUT     (PIT_C1),A
+09D7  3E A8                   LD      A,0A8h
+09D9  D3 E5                   OUT     (PIT_C1),A
+09DB  3E 02                   LD      A,02h
+09DD  D3 E4                   OUT     (PIT_C0),A
+09DF  AF                      XOR     A
+09E0  D3 E4                   OUT     (PIT_C0),A
+09E2  D3 F0                   OUT     (TMR_F0),A
+                      TIMST_SYNC:
+09E4  3E 44                   LD      A,44h                   ; 'D'
+09E6  D3 E7                   OUT     (PIT_CTL),A
+09E8  DB E5                   IN      A,(PIT_C1)
+09EA  4F                      LD      C,A
+09EB  DB E5                   IN      A,(PIT_C1)
+09ED  FE A8                   CP      0A8h
+09EF  20 F3                   JR      NZ,TIMST_SYNC
+09F1  3E C0                   LD      A,0C0h
+09F3  B9                      CP      C
+09F4  20 EE                   JR      NZ,TIMST_SYNC
+09F6  3E C0                   LD      A,0C0h
+09F8  D3 E5                   OUT     (PIT_C1),A
+09FA  3E A8                   LD      A,0A8h
+09FC  D3 E5                   OUT     (PIT_C1),A
+09FE  3E 12                   LD      A,12h
+0A00  D3 E4                   OUT     (PIT_C0),A
+0A02  3E 7A                   LD      A,7Ah                   ; 'z'
+0A04  D3 E4                   OUT     (PIT_C0),A
+0A06  3E 84                   LD      A,84h
+0A08  D3 E7                   OUT     (PIT_CTL),A
+0A0A  DB E6                   IN      A,(PIT_C2)
+0A0C  4F                      LD      C,A
+0A0D  DB E6                   IN      A,(PIT_C2)
+0A0F  47                      LD      B,A
+0A10  ED 43 2E 0A             LD      (TIM_LAST+1),BC
+0A14  C1                      POP     BC
+0A15  C9                      RET
+0A16  EF              TIMRD:  RST     28h
+0A17  C5                      PUSH    BC
+0A18  E5                      PUSH    HL
+0A19  3E 84                   LD      A,84h
+0A1B  D3 E7                   OUT     (PIT_CTL),A
+0A1D  3E 44                   LD      A,44h                   ; 'D'
+0A1F  D3 E7                   OUT     (PIT_CTL),A
+0A21  DB E6                   IN      A,(PIT_C2)
+0A23  4F                      LD      C,A
+0A24  DB E6                   IN      A,(PIT_C2)
+0A26  47                      LD      B,A
+0A27  DB E5                   IN      A,(PIT_C1)
+0A29  5F                      LD      E,A
+0A2A  DB E5                   IN      A,(PIT_C1)
+0A2C  57                      LD      D,A
+                      TIM_LAST:
+0A2D  21 00 00                LD      HL,0000h
+0A30  AF                      XOR     A
+0A31  ED 42                   SBC     HL,BC
+0A33  7D                      LD      A,L
+0A34  0F                      RRCA
+0A35  DC 73 0A                CALL    C,TIM_HALFDAY
+0A38  D5                      PUSH    DE
+0A39  7A                      LD      A,D
+0A3A  B3                      OR      E
+0A3B  20 03                   JR      NZ,TIM_CALC
+0A3D  11 C0 A8                LD      DE,0A8C0h
+                      TIM_CALC:
+0A40  21 C0 A8                LD      HL,0A8C0h
+0A43  ED 52                   SBC     HL,DE
+                      TIM_START:
+0A45  11 00 00                LD      DE,0000h
+0A48  19                      ADD     HL,DE
+0A49  38 22                   JR      C,TIM_WRAP
+0A4B  E5                      PUSH    HL
+0A4C  11 C0 A8                LD      DE,0A8C0h
+0A4F  ED 52                   SBC     HL,DE
+0A51  38 13                   JR      C,TIM_NOWRAP
+0A53  F1                      POP     AF
+                      TIM_RESULT:
+0A54  EB                      EX      DE,HL
+0A55  3E 00           TIM_PM: LD      A,00h
+0A57  EE 01                   XOR     01h
+0A59  E1                      POP     HL
+0A5A  01 01 00                LD      BC,0001h
+0A5D  ED 42                   SBC     HL,BC
+0A5F  20 02                   JR      NZ,TIM_RET
+0A61  EE 01                   XOR     01h
+                      TIM_RET:
+0A63  E1                      POP     HL
+0A64  C1                      POP     BC
+0A65  C9                      RET
+                      TIM_NOWRAP:
+0A66  D1                      POP     DE
+0A67  E1                      POP     HL
+0A68  3A 56 0A                LD      A,(TIM_PM+1)
+0A6B  18 F6                   JR      TIM_RET
+                      TIM_WRAP:
+0A6D  11 40 57                LD      DE,5740h
+0A70  19                      ADD     HL,DE
+0A71  18 E1                   JR      TIM_RESULT
+                      ; <- aufgerufen von 0A35h
+                      TIM_HALFDAY:
+0A73  ED 43 2E 0A             LD      (TIM_LAST+1),BC
+0A77  3A 56 0A                LD      A,(TIM_PM+1)
+0A7A  EE 01                   XOR     01h
+0A7C  32 56 0A                LD      (TIM_PM+1),A
+0A7F  C9                      RET
+                      ;  BELL – Tastenklick (30h Perioden, Halbperiode 60h). TONE: BC Perioden
+                      ;  mit Halbperiode HL über Port C Bit 2 (Bit-Set/Reset 05h/04h); RYTHM
+                      ;  setzt den Operanden von TONE_LP für Pausen auf 04h (stumm).
+                      ; <- aufgerufen von 0C33h
+0A80  E7              BELL:   RST     20h
+0A81  01 30 00                LD      BC,0030h
+0A84  21 60 00                LD      HL,0060h
+                      ; <- aufgerufen von 0BD9h
+0A87  E7              TONE:   RST     20h
+0A88  EF                      RST     28h
+                      TONE_LP:
+0A89  3E 05                   LD      A,05h
+0A8B  CD 99 0A                CALL    TONE_HALF
+0A8E  3E 04                   LD      A,04h
+0A90  CD 99 0A                CALL    TONE_HALF
+0A93  0B                      DEC     BC
+0A94  79                      LD      A,C
+0A95  B0                      OR      B
+0A96  20 F1                   JR      NZ,TONE_LP
+0A98  C9                      RET
+                      ; <- aufgerufen von 0A8Bh, 0A90h
+                      TONE_HALF:
+0A99  D3 E3                   OUT     (PPI_CTL),A
+0A9B  54                      LD      D,H
+0A9C  5D                      LD      E,L
+                      TONE_DLY:
+0A9D  1B                      DEC     DE
+0A9E  7A                      LD      A,D
+0A9F  B3                      OR      E
+0AA0  20 FB                   JR      NZ,TONE_DLY
+0AA2  C9                      RET
+                      ;  MELDY – Melodie aus Text DE spielen, bis 0Dh oder "*": Noten C D E F G
+                      ;  A B, R = Pause, "#" davor = erhöht, "+"/"-" davor = eine Oktave höher/
+                      ;  tiefer (nur für diese Note, OCTAVE), Ziffer 0-9 dahinter = Länge
+                      ;  (NOTE_LEN, gilt bis zur nächsten Ziffer). BREAK beendet (C).
+0AA3  E7              MELDY:  RST     20h
+0AA4  3E 02                   LD      A,02h
+0AA6  32 04 0B                LD      (OCTAVE+1),A
+                      MELDY_LP:
+0AA9  1A                      LD      A,(DE)
+0AAA  FE 0D                   CP      0Dh
+0AAC  C8                      RET     Z
+0AAD  FE 2A                   CP      2Ah                     ; '*'
+0AAF  C8                      RET     Z
+0AB0  FE 2D                   CP      2Dh                     ; '-'
+0AB2  28 25                   JR      Z,MELDY_DOWN
+0AB4  FE 2B                   CP      2Bh                     ; '+'
+0AB6  28 29                   JR      Z,MELDY_UP
+0AB8  21 43 0B                LD      HL,NOTE_TAB
+0ABB  FE 23                   CP      23h                     ; '#'
+0ABD  3E 00                   LD      A,00h
+0ABF  20 05                   JR      NZ,MELDY_NOTE
+0AC1  21 5B 0B                LD      HL,NOTE_SHARP
+0AC4  3C                      INC     A
+0AC5  13                      INC     DE
+                      MELDY_NOTE:
+0AC6  32 99 0B                LD      (NOTE_SHFLAG+1),A
+0AC9  CD E5 0A                CALL    NOTE_FIND
+0ACC  38 DB                   JR      C,MELDY_LP
+0ACE  CD 8C 0B                CALL    RYTHM
+0AD1  3E 02                   LD      A,02h
+0AD3  32 04 0B                LD      (OCTAVE+1),A
+0AD6  D8                      RET     C
+0AD7  18 D0                   JR      MELDY_LP
+                      MELDY_DOWN:
+0AD9  3E 03                   LD      A,03h
+                      MELDY_OCT:
+0ADB  32 04 0B                LD      (OCTAVE+1),A
+0ADE  13                      INC     DE
+0ADF  18 C8                   JR      MELDY_LP
+                      MELDY_UP:
+0AE1  3E 01                   LD      A,01h
+0AE3  18 F6                   JR      MELDY_OCT
+                      ; <- aufgerufen von 0AC9h
+                      NOTE_FIND:
+0AE5  C5                      PUSH    BC
+0AE6  06 08                   LD      B,08h
+0AE8  1A                      LD      A,(DE)
+                      NOTE_FIND_LP:
+0AE9  BE                      CP      (HL)
+0AEA  28 09                   JR      Z,NOTE_FOUND
+0AEC  23                      INC     HL
+0AED  23                      INC     HL
+0AEE  23                      INC     HL
+0AEF  10 F8                   DJNZ    NOTE_FIND_LP
+0AF1  37                      SCF
+0AF2  13                      INC     DE
+0AF3  C1                      POP     BC
+0AF4  C9                      RET
+                      NOTE_FOUND:
+0AF5  78                      LD      A,B
+0AF6  32 A2 0B                LD      (NOTE_IDX+1),A
+0AF9  23                      INC     HL
+0AFA  D5                      PUSH    DE
+0AFB  5E                      LD      E,(HL)
+0AFC  23                      INC     HL
+0AFD  56                      LD      D,(HL)
+0AFE  EB                      EX      DE,HL
+0AFF  7C                      LD      A,H
+0B00  B5                      OR      L
+0B01  28 09                   JR      Z,NOTE_SETPER
+0B03  3E 00           OCTAVE: LD      A,00h
+0B05  3D                      DEC     A
+0B06  28 35                   JR      Z,NOTE_HIGH
+0B08  3D                      DEC     A
+0B09  28 01                   JR      Z,NOTE_SETPER
+0B0B  29                      ADD     HL,HL
+                      NOTE_SETPER:
+0B0C  22 C9 0B                LD      (NOTE_PERIOD+1),HL
+0B0F  D1                      POP     DE
+0B10  13                      INC     DE
+0B11  1A                      LD      A,(DE)
+0B12  47                      LD      B,A
+0B13  E6 F0                   AND     0F0h
+0B15  FE 30                   CP      30h                     ; '0'
+0B17  28 04                   JR      Z,NOTE_NEWLEN
+                      NOTE_LENGTH:
+0B19  3E 00                   LD      A,00h
+0B1B  18 07                   JR      NOTE_DUR
+                      NOTE_NEWLEN:
+0B1D  13                      INC     DE
+0B1E  78                      LD      A,B
+0B1F  E6 0F                   AND     0Fh
+0B21  32 1A 0B                LD      (NOTE_LENGTH+1),A
+                      NOTE_DUR:
+0B24  4F                      LD      C,A
+0B25  06 00                   LD      B,00h
+0B27  21 73 0B                LD      HL,NOTE_LEN
+0B2A  09                      ADD     HL,BC
+0B2B  D5                      PUSH    DE
+0B2C  5E                      LD      E,(HL)
+0B2D  50                      LD      D,B
+0B2E  3A 16 00                LD      A,(TEMPO)
+0B31  47                      LD      B,A
+0B32  62                      LD      H,D
+0B33  6A                      LD      L,D
+                      NOTE_MUL:
+0B34  19                      ADD     HL,DE
+0B35  10 FD                   DJNZ    NOTE_MUL
+0B37  D1                      POP     DE
+0B38  C1                      POP     BC
+0B39  44                      LD      B,H
+0B3A  4D                      LD      C,L
+0B3B  AF                      XOR     A
+0B3C  C9                      RET
+                      NOTE_HIGH:
+0B3D  CB 3C                   SRL     H
+0B3F  CB 1D                   RR      L
+0B41  18 C9                   JR      NOTE_SETPER
+                      ;  NOTE_TAB / NOTE_SHARP: je Note Buchstabe und Halbperiode (16 Bit),
+                      ;  C D E F G A B R; NOTE_LEN: Längen 0-9 (mal TEMPO); NOTE_CYC: Perioden
+                      ;  je Zeiteinheit in umgekehrter Reihenfolge (R, B, A ... C), normal und
+                      ;  erhöht, damit die Dauer nicht von der Tonhöhe abhängt.
+                      NOTE_TAB:
+0B43  43 25 01 44 ..          DEFB    43h,25h,01h,44h,05h,01h,45h,0E9h
+0B4B  00 46 DC 00 ..          DEFB    00h,46h,0DCh,00h,47h,0C3h,00h,41h
+0B53  AE 00 42 9B ..          DEFB    0AEh,00h,42h,9Bh,00h,52h,00h,00h
+                      NOTE_SHARP:
+0B5B  43 15 01 44 ..          DEFB    43h,15h,01h,44h,0F6h,00h,45h,0DCh
+0B63  00 46 CF 00 ..          DEFB    00h,46h,0CFh,00h,47h,0B8h,00h,41h
+0B6B  A4 00 42 92 ..          DEFB    0A4h,00h,42h,92h,00h,52h,00h,00h
+                      NOTE_LEN:
+0B73  01 02 03 04 ..          DEFB    01h,02h,03h,04h,06h,08h,0Ch,10h,18h,20h
+                      NOTE_CYC:
+0B7D  08 0F 0D 0C ..          DEFB    08h,0Fh,0Dh,0Ch,0Bh,0Ah,09h,08h
+0B85  10 0E 0D 0B ..          DEFB    10h,0Eh,0Dh,0Bh,0Bh,0Ah,08h
+                      ;  RYTHM – Note spielen: Dauer aus Länge, TEMPO und NOTE_CYC (Oktave
+                      ;  berücksichtigt), dann TONE; Pause (Halbperiode 0) als stummer Ton.
+                      ;  BREAK -> C.
+                      ; <- aufgerufen von 0ACEh
+0B8C  CD 36 05        RYTHM:  CALL    KBSET
+0B8F  CD 31 05                CALL    BRK
+0B92  D8              RYTHMB: RET     C
+0B93  E7                      RST     20h
+0B94  C5                      PUSH    BC
+0B95  21 7C 0B                LD      HL,NOTE_CYC-1
+                      NOTE_SHFLAG:
+0B98  3E 00                   LD      A,00h
+0B9A  B7                      OR      A
+0B9B  28 04                   JR      Z,NOTE_IDX
+0B9D  01 07 00                LD      BC,0007h
+0BA0  09                      ADD     HL,BC
+                      NOTE_IDX:
+0BA1  3E 00                   LD      A,00h
+0BA3  4F                      LD      C,A
+0BA4  FE 01                   CP      01h
+0BA6  20 05                   JR      NZ,RYTHM_FACT
+0BA8  3E 02                   LD      A,02h
+0BAA  32 04 0B                LD      (OCTAVE+1),A
+                      RYTHM_FACT:
+0BAD  09                      ADD     HL,BC
+0BAE  46                      LD      B,(HL)
+0BAF  3A 04 0B                LD      A,(OCTAVE+1)
+0BB2  3D                      DEC     A
+0BB3  28 07                   JR      Z,RYTHM_LOW
+0BB5  3D                      DEC     A
+0BB6  28 06                   JR      Z,RYTHM_CYC
+0BB8  CB 38                   SRL     B
+0BBA  18 02                   JR      RYTHM_CYC
+                      RYTHM_LOW:
+0BBC  CB 20                   SLA     B
+                      RYTHM_CYC:
+0BBE  D1                      POP     DE
+0BBF  21 00 00                LD      HL,0000h
+                      RYTHM_MUL:
+0BC2  19                      ADD     HL,DE
+0BC3  10 FD                   DJNZ    RYTHM_MUL
+0BC5  44                      LD      B,H
+0BC6  4D                      LD      C,L
+0BC7  EF                      RST     28h
+                      NOTE_PERIOD:
+0BC8  21 00 00                LD      HL,0000h
+0BCB  7C                      LD      A,H
+0BCC  B5                      OR      L
+0BCD  C2 89 0A                JP      NZ,TONE_LP
+0BD0  E5                      PUSH    HL
+0BD1  3E 04                   LD      A,04h
+0BD3  32 8A 0A                LD      (TONE_LP+1),A
+0BD6  21 25 01                LD      HL,0125h
+0BD9  CD 87 0A                CALL    TONE
+0BDC  3E 05                   LD      A,05h
+0BDE  32 8A 0A                LD      (TONE_LP+1),A
+0BE1  E1                      POP     HL
+0BE2  C9                      RET
+                      ;  KNUMBS: Grenze der Eingabelänge für GETL (ST setzt 27h); KNUMBS+1:
+                      ;  zuletzt gelesene Taste (für die Wiederholung).
+0BE3  50 1E           KNUMBS: DEFB    50h,1Eh
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  GETL – Zeileneingabe mit Bildschirmeditor; GETCRT
+                      ; ------------------------------------------------------------------------------
+                      ;  GETL – Zeile mit Bildschirmeditor nach (DE) lesen, Ende 0Dh. Erst
+                      ;  warten, bis BREAK und CR losgelassen sind; Cursor blinkt (CSR_BLINK).
+                      ;  Je Taste Klick (außer CLICKOFF), dann: 01h-06h nach Grafik-Umschaltung
+                      ;  (KEY_GRFLAG) und Zeichen ab 1Ah über ?DSP; 10h-19h Funktionstaste
+                      ;  (Text aus FKTAB, bei KYBDA Bit 2 Text 11-20; 7Fh im Text = CR);
+                      ;  0Dh: logische Zeile übernehmen (Länge auf KNUMBS - 1 begrenzt,
+                      ;  Leerzeichen am Ende entfernt); 0Bh (BREAK): 0Bh, 0Dh; sonst ?DPCT.
+                      ;  Wiederholung nach REPTCT+1 x REPTCT Abfragen, danach alle REPTCT.
+                      ;  GETCRT – logische Zeile unter dem Cursor ohne Eingabe nach (DE) holen;
+                      ;  bei D Bit 7 mit PIO Port A Bit 6 gesetzt (Bedeutung nicht geklärt).
+                      ; <- aufgerufen von 00F0h
+0BE5  E7              GETL:   RST     20h
+0BE6  F5                      PUSH    AF
+0BE7  3A A2 07                LD      A,(CH4080)
+0BEA  4F                      LD      C,A
+0BEB  3A E3 0B                LD      A,(KNUMBS)
+0BEE  3D                      DEC     A
+0BEF  06 FF                   LD      B,0FFh
+                      GETL_ROWS:
+0BF1  04                      INC     B
+0BF2  91                      SUB     C
+0BF3  30 FC                   JR      NC,GETL_ROWS
+0BF5  78                      LD      A,B
+0BF6  32 72 06                LD      (LLINE_MAX+1),A
+0BF9  D9                      EXX
+0BFA  CD 00 0C                CALL    GETL_MAIN
+0BFD  D9                      EXX
+0BFE  F1                      POP     AF
+0BFF  C9                      RET
+                      ; <- aufgerufen von 0BFAh
+                      GETL_MAIN:
+0C00  E7                      RST     20h
+0C01  D9                      EXX
+0C02  D5                      PUSH    DE
+0C03  D9                      EXX
+0C04  CD 37 0E                CALL    PUSHKI
+0C07  CD 1A 0D                CALL    CSR_SAVE
+                      GETL_FLUSH:
+0C0A  CD 27 0D                CALL    KEY_GET
+0C0D  FE 0B                   CP      0Bh
+0C0F  28 F9                   JR      Z,GETL_FLUSH
+0C11  FE 0D                   CP      0Dh
+0C13  28 F5                   JR      Z,GETL_FLUSH
+0C15  32 E4 0B                LD      (KNUMBS+1),A
+0C18  FE 1E                   CP      1Eh
+0C1A  C2 E9 0C                JP      NZ,GETL_REPEAT
+                      GETL_WAIT:
+0C1D  CD 58 0D                CALL    CSR_BLINK
+0C20  CD ED 06                CALL    KEYKEY
+                      GETL_KEY:
+0C23  FE 1E                   CP      1Eh
+0C25  28 F6                   JR      Z,GETL_WAIT
+0C27  32 E4 0B                LD      (KNUMBS+1),A
+0C2A  D9                      EXX
+0C2B  0E 00                   LD      C,00h
+0C2D  D9                      EXX
+                      GETL_CHAR:
+0C2E  4F                      LD      C,A
+0C2F  3A 15 00                LD      A,(CLICKOFF)
+0C32  B7                      OR      A
+0C33  CC 80 0A                CALL    Z,BELL
+0C36  CD DE 0C                CALL    CSR_RESTCH
+0C39  79                      LD      A,C
+0C3A  FE 01                   CP      01h
+0C3C  38 0B                   JR      C,GETL_CTRLCHK
+0C3E  FE 07                   CP      07h
+0C40  30 07                   JR      NC,GETL_CTRLCHK
+0C42  21 A7 0F                LD      HL,KEY_GRFLAG
+0C45  CB 76                   BIT     6,(HL)
+0C47  20 05                   JR      NZ,GETL_PUT
+                      GETL_CTRLCHK:
+0C49  4F                      LD      C,A
+0C4A  FE 1A                   CP      1Ah
+0C4C  38 14                   JR      C,GETL_CTRL
+                      GETL_PUT:
+0C4E  CD 41 06                CALL    ?DSP
+                      GETL_NEXT:
+0C51  CD 1A 0D                CALL    CSR_SAVE
+0C54  D9                      EXX
+0C55  79                      LD      A,C
+0C56  D9                      EXX
+0C57  B7                      OR      A
+0C58  CA E9 0C                JP      Z,GETL_REPEAT
+0C5B  CD FD 0C                CALL    KEY_HOLD
+0C5E  30 C3                   JR      NC,GETL_KEY
+0C60  18 CC                   JR      GETL_CHAR
+                      GETL_CTRL:
+0C62  CB 67                   BIT     4,A
+0C64  20 4E                   JR      NZ,GETL_FKEY
+0C66  FE 0D                   CP      0Dh
+0C68  28 14                   JR      Z,GETL_ENTER
+0C6A  FE 0B                   CP      0Bh
+0C6C  28 05                   JR      Z,GETL_BREAK
+0C6E  CD 14 07                CALL    ?DPCT
+0C71  18 DE                   JR      GETL_NEXT
+                      GETL_BREAK:
+0C73  E1                      POP     HL
+0C74  36 0B                   LD      (HL),0Bh
+0C76  23                      INC     HL
+0C77  36 0D                   LD      (HL),0Dh
+0C79  C3 64 07                JP      LETNL
+0C7C  E7              GETCRT: RST     20h
+0C7D  D5                      PUSH    DE
+                      GETL_ENTER:
+0C7E  CD C1 08                CALL    ??TOL
+0C81  CD E8 08                CALL    LLINE_LEN
+0C84  3A E3 0B                LD      A,(KNUMBS)
+0C87  3D                      DEC     A
+0C88  BD                      CP      L
+0C89  30 01                   JR      NC,GETL_COPY
+0C8B  6F                      LD      L,A
+                      GETL_COPY:
+0C8C  D5                      PUSH    DE
+0C8D  E3                      EX      (SP),HL
+0C8E  C1                      POP     BC
+0C8F  D1                      POP     DE
+0C90  C5                      PUSH    BC
+0C91  CB 7A                   BIT     7,D
+0C93  28 0B                   JR      Z,GETL_TEXT
+0C95  CB BC                   RES     7,H
+0C97  DB E8                   IN      A,(PIO_AD)
+0C99  F6 C0                   OR      0C0h
+0C9B  CD 3E 09                CALL    VRAM_LDIRA
+0C9E  18 03                   JR      GETL_TRIM
+                      GETL_TEXT:
+0CA0  CD 3A 09                CALL    VRAM_LDIR
+                      GETL_TRIM:
+0CA3  C1                      POP     BC
+0CA4  41                      LD      B,C
+0CA5  EB                      EX      DE,HL
+0CA6  04                      INC     B
+                      GETL_TRIM_LP:
+0CA7  36 0D                   LD      (HL),0Dh
+0CA9  2B                      DEC     HL
+0CAA  7E                      LD      A,(HL)
+0CAB  FE 20                   CP      20h                     ; ' '
+0CAD  20 02                   JR      NZ,GETL_DONE
+0CAF  10 F6                   DJNZ    GETL_TRIM_LP
+                      GETL_DONE:
+0CB1  C3 68 07                JP      NL_DOWN
+                      GETL_FKEY:
+0CB4  E6 0F                   AND     0Fh
+0CB6  3C                      INC     A
+0CB7  21 F1 10                LD      HL,KYBDA
+0CBA  CB 56                   BIT     2,(HL)
+0CBC  28 02                   JR      Z,GETL_FKSRCH
+0CBE  C6 0A                   ADD     A,0Ah
+                      GETL_FKSRCH:
+0CC0  47                      LD      B,A
+0CC1  21 00 12                LD      HL,FKTAB
+0CC4  54                      LD      D,H
+                      GETL_FKSKIP:
+0CC5  5D                      LD      E,L
+                      GETL_FKSKIPC:
+0CC6  7E                      LD      A,(HL)
+0CC7  23                      INC     HL
+0CC8  FE 0D                   CP      0Dh
+0CCA  20 FA                   JR      NZ,GETL_FKSKIPC
+0CCC  10 F7                   DJNZ    GETL_FKSKIP
+                      GETL_FKOUT:
+0CCE  1A                      LD      A,(DE)
+0CCF  FE 7F                   CP      7Fh
+0CD1  28 AB                   JR      Z,GETL_ENTER
+0CD3  FE 0D                   CP      0Dh
+0CD5  CA 51 0C                JP      Z,GETL_NEXT
+0CD8  CD 3C 06                CALL    PRNT
+0CDB  13                      INC     DE
+0CDC  18 F0                   JR      GETL_FKOUT
+                      ;  CSR_RESTCH – Zeichen unter dem Cursor (Operand von CSR_UNDER) zurück-
+                      ;  schreiben. CSR_SAVE merkt es sich. CSR_BLINK – Blinktakt in B' (Startwert
+                      ;  CSR_BLINKCNT), Cursor 1Fh abwechselnd mit dem Zeichen (bei 1Fh mit
+                      ;  einem Leerzeichen).
+                      ; <- aufgerufen von 0C36h
+                      CSR_RESTCH:
+0CDE  F5                      PUSH    AF
+0CDF  CD 04 09                CALL    ?PONT
+                      CSR_UNDER:
+0CE2  3E 00                   LD      A,00h
+0CE4  CD 2D 09                CALL    DSPW
+0CE7  F1                      POP     AF
+0CE8  C9                      RET
+                      GETL_REPEAT:
+0CE9  3A 0E 00                LD      A,(REPTCT+1)
+0CEC  5F                      LD      E,A
+                      GETL_REPLP:
+0CED  CD FD 0C                CALL    KEY_HOLD
+0CF0  D2 23 0C                JP      NC,GETL_KEY
+0CF3  1D                      DEC     E
+0CF4  20 F7                   JR      NZ,GETL_REPLP
+0CF6  D9                      EXX
+0CF7  0E 01                   LD      C,01h
+0CF9  D9                      EXX
+0CFA  C3 2E 0C                JP      GETL_CHAR
+                      ;  KEY_HOLD – C, solange dieselbe Taste REPTCT Abfragen lang gehalten wird.
+                      ; <- aufgerufen von 0C5Bh, 0CEDh
+                      KEY_HOLD:
+0CFD  D5                      PUSH    DE
+0CFE  3A 0D 00                LD      A,(REPTCT)
+0D01  5F                      LD      E,A
+                      KEY_HOLD_LP:
+0D02  CD 0C 0D                CALL    KEY_SAME
+0D05  30 03                   JR      NC,KEY_HOLD_RET
+0D07  1D                      DEC     E
+0D08  20 F8                   JR      NZ,KEY_HOLD_LP
+                      KEY_HOLD_RET:
+0D0A  D1                      POP     DE
+0D0B  C9                      RET
+                      ; <- aufgerufen von 0D02h
+                      KEY_SAME:
+0D0C  CD 27 0D                CALL    KEY_GET
+0D0F  F5                      PUSH    AF
+0D10  3A E4 0B                LD      A,(KNUMBS+1)
+0D13  4F                      LD      C,A
+0D14  F1                      POP     AF
+0D15  B9                      CP      C
+0D16  37                      SCF
+0D17  C8                      RET     Z
+0D18  B7                      OR      A
+0D19  C9                      RET
+                      ; <- aufgerufen von 0C07h, 0C51h, 0D85h
+                      CSR_SAVE:
+0D1A  CD 04 09                CALL    ?PONT
+0D1D  CD 1A 09                CALL    DSPRED
+0D20  D9                      EXX
+0D21  57                      LD      D,A
+0D22  32 E3 0C                LD      (CSR_UNDER+1),A
+0D25  18 36                   JR      CSR_BLINKCNT
+                      ;  KEY_GET – neue Taste (GETKY) oder, solange die letzte Taste (KEYPOS) bei
+                      ;  unveränderten Sondertasten gehalten wird, deren Code (KNUMBS+1); sonst
+                      ;  1Eh.
+                      ; <- aufgerufen von 0C0Ah, 0D0Ch
+                      KEY_GET:
+0D27  2A 13 00                LD      HL,(KEYPOS)
+0D2A  CD 10 06                CALL    GETKY
+0D2D  C0                      RET     NZ
+0D2E  22 13 00                LD      (KEYPOS),HL
+0D31  7D                      LD      A,L
+0D32  B7                      OR      A
+0D33  C4 4B 0D                CALL    NZ,KEY_ROWRD
+0D36  A5                      AND     L
+0D37  3E 1E                   LD      A,1Eh
+0D39  C8                      RET     Z
+0D3A  3A F1 10                LD      A,(KYBDA)
+0D3D  6F                      LD      L,A
+0D3E  26 0B                   LD      H,0Bh
+0D40  CD 4B 0D                CALL    KEY_ROWRD
+0D43  BD                      CP      L
+0D44  3E 1E                   LD      A,1Eh
+0D46  C0                      RET     NZ
+0D47  3A E4 0B                LD      A,(KNUMBS+1)
+0D4A  C9                      RET
+                      ; <- aufgerufen von 0D33h, 0D40h
+                      KEY_ROWRD:
+0D4B  DB E8                   IN      A,(PIO_AD)
+0D4D  E6 F0                   AND     0F0h
+0D4F  B4                      OR      H
+0D50  D3 E8                   OUT     (PIO_AD),A
+0D52  DB EA                   IN      A,(PIO_BD)
+0D54  DB EA                   IN      A,(PIO_BD)
+0D56  2F                      CPL
+0D57  C9                      RET
+                      ; <- aufgerufen von 0C1Dh, 0D88h
+                      CSR_BLINK:
+0D58  D9                      EXX
+0D59  05                      DEC     B
+0D5A  D9                      EXX
+0D5B  C0                      RET     NZ
+0D5C  D9                      EXX
+                      CSR_BLINKCNT:
+0D5D  06 40                   LD      B,40h
+0D5F  3E 1F                   LD      A,1Fh
+0D61  BA                      CP      D
+0D62  20 0B                   JR      NZ,CSR_SHOW
+0D64  3A E3 0C                LD      A,(CSR_UNDER+1)
+0D67  FE 1F                   CP      1Fh
+0D69  20 04                   JR      NZ,CSR_SHOW
+0D6B  06 10                   LD      B,10h
+0D6D  3E 20                   LD      A,20h                   ; ' '
+                      CSR_SHOW:
+0D6F  57                      LD      D,A
+0D70  D9                      EXX
+0D71  CD 04 09                CALL    ?PONT
+0D74  C3 2D 09                JP      DSPW
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  ??KEY – auf eine Taste warten; TENTBL – Sonderfunktionen der Tastatur
+                      ; ------------------------------------------------------------------------------
+                      ;  ??KEY / KEY_WAIT – auf eine Taste warten (Cursor blinkt), Code in A.
+0D77  E7              ??KEY:  RST     20h
+0D78  D9                      EXX
+0D79  CD 7E 0D                CALL    KEY_WAIT
+0D7C  D9                      EXX
+0D7D  C9                      RET
+                      ; <- aufgerufen von 0D79h
+                      KEY_WAIT:
+0D7E  E7                      RST     20h
+0D7F  CD 37 0E                CALL    PUSHKI
+0D82  CD 71 0E                CALL    KEYSCAN
+0D85  CD 1A 0D                CALL    CSR_SAVE
+                      KEY_WAIT_LP:
+0D88  CD 58 0D                CALL    CSR_BLINK
+0D8B  CD ED 06                CALL    KEYKEY
+0D8E  FE 1E                   CP      1Eh
+0D90  28 F6                   JR      Z,KEY_WAIT_LP
+0D92  C3 DE 0C                JP      CSR_RESTCH
+                      ;  TENTBL: Funktionen der Tasten mit Index 0Ah-17h bei B Bit 2: 0Ah CHR80,
+                      ;  10h Rest der Zeile löschen, 11h Tabstopp setzen (TAB_SET), 12h Tabstopp
+                      ;  löschen, 13h alle löschen, 14h CHR40, 15h CHANGE; die übrigen nichts.
+                      ;  TAB_FIND: Z, wenn Spalte A in TABDAT steht (HL zeigt darauf).
+0D95  58 09           TENTBL: DEFW    CHR80
+0D97  56 07                   DEFW    NOP_RET
+0D99  56 07                   DEFW    NOP_RET
+0D9B  56 07                   DEFW    NOP_RET
+0D9D  56 07                   DEFW    NOP_RET
+0D9F  56 07                   DEFW    NOP_RET
+0DA1  11 08                   DEFW    DELLN
+0DA3  B1 0D                   DEFW    TAB_SET
+0DA5  C0 0D                   DEFW    TAB_CLR
+0DA7  CA 0D                   DEFW    TAB_CLRALL
+0DA9  8F 09                   DEFW    CHR40
+0DAB  DD 0D                   DEFW    CHANGE
+0DAD  56 07                   DEFW    NOP_RET
+0DAF  56 07                   DEFW    NOP_RET
+                      TAB_SET:
+0DB1  3A D1 10                LD      A,(DSPXY)
+0DB4  4F                      LD      C,A
+0DB5  CD D2 0D                CALL    TAB_FIND
+0DB8  C8                      RET     Z
+0DB9  AF                      XOR     A
+0DBA  CD D2 0D                CALL    TAB_FIND
+0DBD  C0                      RET     NZ
+0DBE  71                      LD      (HL),C
+0DBF  C9                      RET
+                      TAB_CLR:
+0DC0  3A D1 10                LD      A,(DSPXY)
+0DC3  CD D2 0D                CALL    TAB_FIND
+0DC6  C0                      RET     NZ
+0DC7  36 00                   LD      (HL),00h
+0DC9  C9                      RET
+                      TAB_CLRALL:
+0DCA  06 10                   LD      B,10h
+0DCC  21 C0 10                LD      HL,TABDAT
+0DCF  C3 D3 05                JP      ?CLER
+                      ; <- aufgerufen von 0689h, 0DB5h, 0DBAh, 0DC3h
+                      TAB_FIND:
+0DD2  06 10                   LD      B,10h
+0DD4  21 C0 10                LD      HL,TABDAT
+                      TAB_FIND_LP:
+0DD7  BE                      CP      (HL)
+0DD8  C8                      RET     Z
+0DD9  23                      INC     HL
+0DDA  10 FB                   DJNZ    TAB_FIND_LP
+0DDC  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  CHANGE/?SWAP – Groß-/Kleinschreibung tauschen: vertauscht die je 7
+                      ;  Befehlsbytes bei KEY_CASE1 und KEY_CASE2 (ADD A,20h/CP 5Bh/RET C/
+                      ;  SUB 3Ah gegen ADD A,40h/CP 7Bh/RET C/SUB 5Ah) in KEYSCAN
+                      ; ------------------------------------------------------------------------------
+0DDD  EF              CHANGE: RST     28h
+0DDE  21 61 0F                LD      HL,KEY_CASE1
+0DE1  11 73 0F                LD      DE,KEY_CASE2
+0DE4  06 07                   LD      B,07h
+0DE6  4E              ?SWAP:  LD      C,(HL)
+0DE7  1A                      LD      A,(DE)
+0DE8  77                      LD      (HL),A
+0DE9  79                      LD      A,C
+0DEA  12                      LD      (DE),A
+0DEB  23                      INC     HL
+0DEC  13                      INC     DE
+0DED  10 F7                   DJNZ    ?SWAP
+0DEF  AF                      XOR     A
+0DF0  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  PUSHR/PUSHR2 – Register sichern (Ziel von RST 20h)
+                      ; ------------------------------------------------------------------------------
+                      ;  PUSHR2: wie PUSHR, aber ohne DE.
+0DF1  DD E3           PUSHR:  EX      (SP),IX
+0DF3  E5                      PUSH    HL
+0DF4  C5                      PUSH    BC
+0DF5  D5                      PUSH    DE
+0DF6  E5                      PUSH    HL
+0DF7  21 08 0E                LD      HL,PUSHR_POP
+0DFA  E3                      EX      (SP),HL
+0DFB  DD E9                   JP      (IX)
+0DFD  DD E3           PUSHR2: EX      (SP),IX
+0DFF  E5                      PUSH    HL
+0E00  C5                      PUSH    BC
+0E01  E5                      PUSH    HL
+0E02  21 09 0E                LD      HL,PUSHR_POP2
+0E05  E3                      EX      (SP),HL
+0E06  DD E9                   JP      (IX)
+                      PUSHR_POP:
+0E08  D1                      POP     DE
+                      PUSHR_POP2:
+0E09  C1                      POP     BC
+0E0A  E1                      POP     HL
+0E0B  DD E1                   POP     IX
+0E0D  C9                      RET
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  DI_ – Interrupts sperren und Restroutine aufrufen (Ziel von RST 28h)
+                      ; ------------------------------------------------------------------------------
+0E0E  F5              DI_:    PUSH    AF
+0E0F  ED 57                   LD      A,I                     ; IFF2 -> Paritätsflag (PE = Interrupts waren frei)
+0E11  F3                      DI
+0E12  E2 35 0E                JP      PO,POP_AF_RET
+0E15  F1                      POP     AF
+0E16  E3                      EX      (SP),HL
+0E17  22 1C 0E                LD      (DI_CALL+1),HL            ; Rücksprungadresse = Fortsetzung der Routine
+0E1A  E1                      POP     HL
+                      DI_CALL:
+0E1B  CD 00 00                CALL    RESET                   ; Rest der aufrufenden Routine ausführen
+0E1E  FB                      EI                              ; danach Interrupts wieder frei
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  KINT/PUSHKI/KINTON – Tastatur-Interrupt über PIO Port B
+                      ;  KINTF <> 0: Interrupt bei Tastendruck freigeschaltet (vermutlich als
+                      ;  Abbruchmöglichkeit; der Interrupt landet über IM 1 bei 0038h).
+                      ; ------------------------------------------------------------------------------
+0E1F  F5              KINT:   PUSH    AF
+                      KINT_SET:
+0E20  3A FD 10                LD      A,(KINTF)
+0E23  B7                      OR      A
+0E24  28 0F                   JR      Z,POP_AF_RET
+0E26  DB E8                   IN      A,(PIO_AD)
+0E28  E6 E0                   AND     0E0h
+0E2A  F6 12                   OR      12h
+0E2C  D3 E8                   OUT     (PIO_AD),A
+0E2E  3E 97                   LD      A,97h
+0E30  D3 EB                   OUT     (PIO_BC),A
+0E32  AF                      XOR     A
+0E33  D3 EB                   OUT     (PIO_BC),A
+                      POP_AF_RET:
+0E35  F1                      POP     AF
+0E36  C9                      RET
+                      ; <- aufgerufen von 0611h, 0C04h, 0D7Fh
+0E37  21 FD 10        PUSHKI: LD      HL,KINTF
+0E3A  7E                      LD      A,(HL)
+0E3B  B7                      OR      A
+0E3C  C8                      RET     Z
+0E3D  36 00                   LD      (HL),00h
+0E3F  3E 03                   LD      A,03h
+0E41  D3 EB                   OUT     (PIO_BC),A
+0E43  E1                      POP     HL
+0E44  CD D0 01                CALL    .HL
+0E47  F5              KINTON: PUSH    AF
+0E48  3E FF                   LD      A,0FFh
+0E4A  32 FD 10                LD      (KINTF),A
+0E4D  18 D1                   JR      KINT_SET
+                      MSG_MONITOR:
+0E4F  2A 2A 20 4D ..          DEFB    "** Monitor SB-1511 **",0Dh
+                      ; <- aufgerufen von 0E7Dh, 0E83h
+                      KEY_ROW:
+0E65  DB E8                   IN      A,(PIO_AD)
+0E67  E6 F0                   AND     0F0h
+0E69  B2                      OR      D
+0E6A  D3 E8                   OUT     (PIO_AD),A
+0E6C  DB EA                   IN      A,(PIO_BD)
+0E6E  DB EA                   IN      A,(PIO_BD)
+0E70  C9                      RET
+                      ;  KEYSCAN – Tastaturmatrix abfragen: Zeile 0Bh (Sondertasten) nach B,
+                      ;  Zeilen 0Ah-00h prüfen, nur neu gedrückte Tasten zählen (KSTD = letzter
+                      ;  Stand je Zeile, KYBDA = Sondertasten). Nur Sondertasten geändert: je
+                      ;  nach Kombination und MODE 0Ch, 0Eh, 7Fh, 09h, 0Ah oder 0Fh, sonst 1Eh.
+                      ;  Mit Taste: Index Zeile * 8 + Spalte (KEY_CODE); B wird ergänzt aus MODE
+                      ;  (Bit 7 -> B3 invers, Bit 6 -> B0 Grafik, Bit 5 -> B1 klein, B1 -> B2).
+                      ;  Umsetzung über KEYTAB (normal), KEYTAB+1Eh (B2) bzw. KEYTAB+3Ch (Grafik,
+                      ;  Index unter 40h); Buchstaben werden bei KEY_CASE1/2 berechnet. Index
+                      ;  0Ah-17h mit B2: TENTBL; 18h: 1Bh/1Fh; 52h/53h: 05h/06h bzw. 07h/08h.
+                      ;  Mit B3 bekommen Zeichen 20h-7Eh Bit 7 (invers).
+                      ; <- aufgerufen von 0614h, 0D82h
+                      KEYSCAN:
+0E71  EF                      RST     28h
+0E72  21 00 00                LD      HL,0000h
+0E75  22 13 00                LD      (KEYPOS),HL
+0E78  21 FC 10                LD      HL,KSTD_LAST
+0E7B  16 1B                   LD      D,1Bh
+0E7D  CD 65 0E                CALL    KEY_ROW
+0E80  2F                      CPL
+0E81  47                      LD      B,A
+                      KEY_ROWLP:
+0E82  15                      DEC     D
+0E83  CD 65 0E                CALL    KEY_ROW
+0E86  5F                      LD      E,A
+0E87  2F                      CPL
+0E88  A6                      AND     (HL)
+0E89  73              ..KEY:  LD      (HL),E
+0E8A  2B                      DEC     HL
+0E8B  5F                      LD      E,A
+0E8C  B7                      OR      A
+0E8D  28 04                   JR      Z,KEY_ROWNEXT
+0E8F  ED 53 13 00             LD      (KEYPOS),DE
+                      KEY_ROWNEXT:
+0E93  7A                      LD      A,D
+0E94  E6 0F                   AND     0Fh
+0E96  20 EA                   JR      NZ,KEY_ROWLP
+0E98  ED 5B 13 00             LD      DE,(KEYPOS)
+0E9C  7B                      LD      A,E
+0E9D  B7                      OR      A
+0E9E  20 45                   JR      NZ,KEY_PRESSED
+0EA0  78                      LD      A,B
+0EA1  BE                      CP      (HL)
+0EA2  28 2E                   JR      Z,KEY_RET1E
+0EA4  77                      LD      (HL),A
+0EA5  21 D0 10                LD      HL,MODE
+0EA8  FE 01                   CP      01h
+0EAA  28 1B                   JR      Z,KEY_M01
+0EAC  FE 02                   CP      02h
+0EAE  28 1E                   JR      Z,KEY_M02
+0EB0  FE 03                   CP      03h
+0EB2  28 21                   JR      Z,KEY_RET7F
+0EB4  FE 05                   CP      05h
+0EB6  28 20                   JR      Z,KEY_RET09
+0EB8  FE 06                   CP      06h
+0EBA  28 1F                   JR      Z,KEY_RET0A
+0EBC  FE 08                   CP      08h
+0EBE  28 1E                   JR      Z,KEY_M08
+0EC0  FE 0C                   CP      0Ch
+0EC2  20 0E                   JR      NZ,KEY_RET1E
+0EC4  3E 0C                   LD      A,0Ch
+0EC6  C9                      RET
+                      KEY_M01:
+0EC7  CB 76                   BIT     6,(HL)
+0EC9  28 07                   JR      Z,KEY_RET1E
+                      KEY_RET0E:
+0ECB  3E 0E                   LD      A,0Eh
+0ECD  C9                      RET
+                      KEY_M02:
+0ECE  CB 6E                   BIT     5,(HL)
+0ED0  20 F9                   JR      NZ,KEY_RET0E
+                      KEY_RET1E:
+0ED2  3E 1E                   LD      A,1Eh
+0ED4  C9                      RET
+                      KEY_RET7F:
+0ED5  3E 7F                   LD      A,7Fh
+0ED7  C9                      RET
+                      KEY_RET09:
+0ED8  3E 09                   LD      A,09h
+0EDA  C9                      RET
+                      KEY_RET0A:
+0EDB  3E 0A                   LD      A,0Ah
+0EDD  C9                      RET
+                      KEY_M08:
+0EDE  CB 7E                   BIT     7,(HL)
+0EE0  28 F0                   JR      Z,KEY_RET1E
+0EE2  3E 0F                   LD      A,0Fh
+0EE4  C9                      RET
+                      KEY_PRESSED:
+0EE5  CD F4 0E                CALL    KEY_CODE
+0EE8  CB 58                   BIT     3,B
+0EEA  C8                      RET     Z
+0EEB  FE 7F                   CP      7Fh
+0EED  D0                      RET     NC
+0EEE  FE 20                   CP      20h                     ; ' '
+0EF0  D8                      RET     C
+0EF1  F6 80                   OR      80h
+0EF3  C9                      RET
+                      ; <- aufgerufen von 0EE5h
+                      KEY_CODE:
+0EF4  7B                      LD      A,E
+0EF5  1E 00                   LD      E,00h
+0EF7  B7                      OR      A
+                      KEY_COLNUM:
+0EF8  1F                      RRA
+0EF9  38 03                   JR      C,KEY_INDEX
+0EFB  1C                      INC     E
+0EFC  18 FA                   JR      KEY_COLNUM
+                      KEY_INDEX:
+0EFE  B7                      OR      A
+0EFF  20 D1                   JR      NZ,KEY_RET1E
+0F01  3E 0F                   LD      A,0Fh
+0F03  A2                      AND     D
+0F04  07                      RLCA
+0F05  07                      RLCA
+0F06  07                      RLCA
+0F07  B3                      OR      E
+0F08  5F                      LD      E,A
+0F09  16 00                   LD      D,00h
+0F0B  21 D0 10                LD      HL,MODE
+0F0E  CB 7E                   BIT     7,(HL)
+0F10  28 02                   JR      Z,KEY_MODGR
+0F12  CB D8                   SET     3,B
+                      KEY_MODGR:
+0F14  CB 76                   BIT     6,(HL)
+0F16  28 02                   JR      Z,KEY_FLAGS
+0F18  CB C0                   SET     0,B
+                      KEY_FLAGS:
+0F1A  21 A7 0F                LD      HL,KEY_GRFLAG
+0F1D  36 00                   LD      (HL),00h
+0F1F  CB 40                   BIT     0,B
+0F21  28 02                   JR      Z,KEY_CLASS
+0F23  CB F6                   SET     6,(HL)
+                      KEY_CLASS:
+0F25  FE 0A                   CP      0Ah
+0F27  38 31                   JR      C,KEY_NORMAL
+0F29  FE 18                   CP      18h
+0F2B  38 50                   JR      C,KEY_CTRL
+0F2D  28 70                   JR      Z,KEY_18
+0F2F  FE 20                   CP      20h                     ; ' '
+0F31  38 27                   JR      C,KEY_NORMAL
+0F33  7B                      LD      A,E
+0F34  FE 52                   CP      52h                     ; 'R'
+0F36  28 5D                   JR      Z,KEY_RS
+0F38  FE 53                   CP      53h                     ; 'S'
+0F3A  28 59                   JR      Z,KEY_RS
+0F3C  21 D0 10                LD      HL,MODE
+0F3F  CB 6E                   BIT     5,(HL)
+0F41  28 02                   JR      Z,KEY_SHIFTCHK
+0F43  CB C8                   SET     1,B
+                      KEY_SHIFTCHK:
+0F45  CB 48                   BIT     1,B
+0F47  28 02                   JR      Z,KEY_SYMCHK
+0F49  CB D0                   SET     2,B
+                      KEY_SYMCHK:
+0F4B  FE 40                   CP      40h                     ; '@'
+0F4D  30 07                   JR      NC,KEY_SHIFTED
+0F4F  CB 40                   BIT     0,B
+0F51  21 13 10                LD      HL,KEYTAB+3Ch
+0F54  20 13                   JR      NZ,KEY_LOOKUP
+                      KEY_SHIFTED:
+0F56  CB 50                   BIT     2,B
+0F58  20 12                   JR      NZ,KEY_SHIFT
+                      KEY_NORMAL:
+0F5A  21 D7 0F                LD      HL,KEYTAB
+0F5D  FE 21                   CP      21h                     ; '!'
+0F5F  38 08                   JR      C,KEY_LOOKUP
+                      KEY_CASE1:
+0F61  C6 20                   ADD     A,20h
+0F63  FE 5B                   CP      5Bh                     ; '['
+0F65  D8                      RET     C
+0F66  D6 3A                   SUB     3Ah
+0F68  5F                      LD      E,A
+                      KEY_LOOKUP:
+0F69  19                      ADD     HL,DE
+0F6A  7E                      LD      A,(HL)
+0F6B  C9                      RET
+                      KEY_SHIFT:
+0F6C  21 F5 0F                LD      HL,KEYTAB+1Eh
+0F6F  FE 21                   CP      21h                     ; '!'
+0F71  38 F6                   JR      C,KEY_LOOKUP
+                      KEY_CASE2:
+0F73  C6 40                   ADD     A,40h
+0F75  FE 7B                   CP      7Bh                     ; '{'
+0F77  D8                      RET     C
+0F78  D6 5A                   SUB     5Ah
+0F7A  5F                      LD      E,A
+0F7B  18 EC                   JR      KEY_LOOKUP
+                      KEY_CTRL:
+0F7D  CB 50                   BIT     2,B
+0F7F  28 D9                   JR      Z,KEY_NORMAL
+0F81  D6 0A                   SUB     0Ah
+0F83  87                      ADD     A,A
+0F84  21 95 0D                LD      HL,TENTBL
+0F87  5F                      LD      E,A
+0F88  16 00                   LD      D,00h
+0F8A  19                      ADD     HL,DE
+0F8B  5E                      LD      E,(HL)
+0F8C  23                      INC     HL
+0F8D  56                      LD      D,(HL)
+0F8E  EB                      EX      DE,HL
+0F8F  CD D0 01                CALL    .HL
+0F92  C3 D2 0E                JP      KEY_RET1E
+0F95  D6 52           KEY_RS: SUB     52h
+0F97  87                      ADD     A,A
+0F98  C6 05                   ADD     A,05h
+0F9A  CB 50                   BIT     2,B
+0F9C  C8                      RET     Z
+0F9D  3C                      INC     A
+0F9E  C9                      RET
+0F9F  CB 50           KEY_18: BIT     2,B
+0FA1  3E 1B                   LD      A,1Bh
+0FA3  C8                      RET     Z
+0FA4  3E 1F                   LD      A,1Fh
+0FA6  C9                      RET
+                      ;  KEY_GRFLAG: Bit 6 = letzte Taste mit Grafik-Umschaltung (für GETL).
+                      KEY_GRFLAG:
+0FA7  00                      DEFB    00h                     ; ?? |.|
+                      ;  CTL_09..CTL_0F – Modi in MODE setzen (Bit 5 klein, 6 Grafik, 7 invers)
+                      ;  und MODE nach PPI Port A (SETMODE).
+0FA8  21 D0 10        CTL_0F: LD      HL,MODE
+0FAB  CB BE                   RES     7,(HL)
+                      SETMODE:
+0FAD  7E                      LD      A,(HL)
+0FAE  D3 E0                   OUT     (PPI_A),A
+0FB0  C9                      RET
+0FB1  21 D0 10        CTL_0E: LD      HL,MODE
+0FB4  CB B6                   RES     6,(HL)
+0FB6  CB AE                   RES     5,(HL)
+0FB8  18 F3                   JR      SETMODE
+0FBA  21 D0 10        CTL_0C: LD      HL,MODE
+0FBD  CB FE                   SET     7,(HL)
+0FBF  CB B6                   RES     6,(HL)
+0FC1  18 EA                   JR      SETMODE
+0FC3  21 D0 10        CTL_0A: LD      HL,MODE
+0FC6  CB EE                   SET     5,(HL)
+0FC8  CB B6                   RES     6,(HL)
+0FCA  18 E1                   JR      SETMODE
+0FCC  21 D0 10        CTL_09: LD      HL,MODE
+0FCF  CB AE                   RES     5,(HL)
+0FD1  CB F6                   SET     6,(HL)
+0FD3  CB BE                   RES     7,(HL)
+0FD5  18 D6                   JR      SETMODE
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  Tastaturtabellen
+                      ; ------------------------------------------------------------------------------
+                      ;  KEYTAB: Zeichen je Tastenindex; dieselbe Tabelle dient ab +1Eh als
+                      ;  Shift- und ab +3Ch als Grafiktabelle (Indizes beginnen dort weiter
+                      ;  hinten, die Bereiche überlappen).
+0FD7  10 11 12 13 ..  KEYTAB: DEFB    10h,11h,12h,13h,14h,15h,16h,17h
+0FDF  18 19 38 39 ..          DEFB    18h,19h,38h,39h,1Ah,2Eh,2Bh,2Dh
+0FE7  30 31 32 33 ..          DEFB    30h,31h,32h,33h,34h,35h,36h,37h
+0FEF  1B 20 0D 02 ..          DEFB    1Bh,20h,0Dh,02h,01h,04h,03h,0Bh
+0FF7  2F 5E 5C 3F ..          DEFB    2Fh,5Eh,5Ch,3Fh,2Eh,2Ch,30h,31h
+0FFF  32 33 34 35 ..          DEFB    32h,33h,34h,35h,36h,37h,38h,39h
+1007  3A 3B 2D 40 ..          DEFB    3Ah,3Bh,2Dh,40h,5Bh,1Eh,5Dh,1Eh
+100F  05 07 1E 1E ..          DEFB    05h,07h,1Eh,1Eh,1Eh,1Eh,84h,7Eh
+1017  7C 82 3E 3C ..          DEFB    7Ch,82h,3Eh,3Ch,5Fh,21h,22h,23h
+101F  24 25 26 27 ..          DEFB    24h,25h,26h,27h,28h,29h,2Ah,2Bh
+1027  3D 60 7B 1E ..          DEFB    3Dh,60h,7Bh,1Eh,7Dh,1Eh,1Eh,1Eh
+102F  1E 1E 1E 1E ..          DEFB    1Eh,1Eh,1Eh,1Eh,83h,98h,88h,86h
+1037  9A 9E 9B 99 ..          DEFB    9Ah,9Eh,9Bh,99h,80h,89h,90h,8Dh
+103F  8F 92 94 8C ..          DEFB    8Fh,92h,94h,8Ch,8Bh,97h,9Fh,96h
+1047  9C 8A 87 95 ..          DEFB    9Ch,8Ah,87h,95h,85h,9Dh,8Eh,5Eh
+104F  5C 81 FF 91             DEFB    5Ch,81h,0FFh,91h
+                      ;  CMT_STOPAF – Laufwerk stoppen, Flags erhalten. CMT_SEEK – kurz warten,
+                      ;  dann Bandmarke suchen.
+                      CMT_STOPAF:
+1053  F5                      PUSH    AF
+1054  CD 95 04                CALL    MSTOP
+1057  F1                      POP     AF
+1058  C9                      RET
+                      ; <- aufgerufen von 026Ch, 0293h
+                      CMT_SEEK:
+1059  CD DC 04                CALL    DEL1M
+105C  C3 B0 03                JP      RDTMARK
+                      ;  Von der RB-Datei nicht belegt (FILL105F, FILL10FE, IBU24).
+                      FILL105F:
+105F  00 x 97                 DEFS    97,00h                  ; 97 Bytes Füllung
+                      
+                      ; ==============================================================================
+                      ;  ARBEITSSPEICHER DES MONITORS
+                      ; ==============================================================================
+                      ;  TABDAT, MODE, DSPXY, MANG, FKAE, KYBDA, KSTD, KINTF, BUFER,
+                      ;  IBUFE (Kassetten-Header: NAME, SIZE, DTADR, EXADR) ...
+                      ;  TABDAT: 16 Tabulatorspalten (Vorgabe alle 5 Spalten), 0 = frei.
+                      ;  MODE: Kopie von PPI Port A (Bit 5 klein, 6 Grafik, 7 invers).
+                      ;  DSPXY/DSPXY1: Cursor Spalte/Zeile. MANG: je Bildschirmzeile Nummer der
+                      ;  Fortsetzung (0 = Anfang einer logischen Zeile).
+10C0  05 0A 0F 14 ..  TABDAT: DEFB    05h,0Ah,0Fh,14h,19h,1Eh,23h,28h  ; ?? |......#(|
+10C8  2D 32 37 3C ..          DEFB    2Dh,32h,37h,3Ch,41h,46h,4Bh,00h  ; ?? |-27<AFK.|
+10D0  12              MODE:   DEFB    12h                     ; ?? |.|
+10D1  00              DSPXY:  DEFB    00h                     ; ?? |.|
+10D2  00              DSPXY1: DEFB    00h                     ; ?? |.|
+10D3  00 00 00 00 ..  MANG:   DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+10DB  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+10E3  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+10EB  00 00 00 00             DEFB    00h,00h,00h,00h         ; ?? |....|
+                      ;  FKAE: 1214h, vermutlich das Ende der Funktionstastentexte (FARE + 20 x
+                      ;  0Dh); kein gefundener Codepfad liest es. KYBDA: Stand der Sondertasten,
+                      ;  KSTD..KSTD_LAST: letzter Stand der Zeilen 00h-0Ah.
+10EF  14 12           FKAE:   DEFB    14h,12h                 ; ?? |..|
+10F1  00              KYBDA:  DEFB    00h                     ; ?? |.|
+10F2  00 00 00 00 ..  KSTD:   DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+10FA  00 00                   DEFB    00h,00h                 ; ?? |..|
+                      KSTD_LAST:
+10FC  00                      DEFB    00h                     ; ?? |.|
+10FD  00              KINTF:  DEFB    00h                     ; ?? |.|
+                      FILL10FE:
+10FE  00 x 2                  DEFS    2,00h                   ; 2 Bytes Füllung
+                      ;  BUFER: Eingabepuffer des Monitors; ADR_IN, MEM_IN, NAME_IN: Positionen
+                      ;  hinter den Prompts ("x-adr.$", Adresse beim *M, "File name:").
+1100  00 00 00 00 ..  BUFER:  DEFB    00h,00h,00h,00h,00h,00h,00h  ; ?? |.......|
+1107  00              ADR_IN: DEFB    00h                     ; ?? |.|
+1108  00 00           MEM_IN: DEFB    00h,00h                 ; ?? |..|
+                      NAME_IN:
+110A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1112  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+111A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1122  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+112A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1132  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+113A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1142  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+114A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1152  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+115A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1162  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+116A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1172  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+117A  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h ; ?? |......|
+                      ;  IBUFE: Kassettenkopf (128 Bytes): Typ, NAME (17 Bytes), SIZE, DTADR,
+                      ;  EXADR, Rest.
+1180  00              IBUFE:  DEFB    00h                     ; ?? |.|
+1181  00 00 00 00 ..  IBU1:   DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1189  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h  ; ?? |........|
+1191  00                      DEFB    00h                     ; ?? |.|
+1192  00 00           IBU18:  DEFB    00h,00h                 ; ?? |..|
+1194  00 00           DTADR:  DEFB    00h,00h                 ; ?? |..|
+1196  00 00           EXADR:  DEFB    00h,00h                 ; ?? |..|
+1198  00 x 104        IBU24:  DEFS    104,00h                 ; 104 Bytes Füllung
+                      
+                      ; ------------------------------------------------------------------------------
+                      ;  FARE – Funktionstastenbelegung (FAREN = A0h Bytes)
+                      ; ------------------------------------------------------------------------------
+                      ;  FKTAB (= FARE): 20 Funktionstastentexte, je mit 0Dh abgeschlossen
+                      ;  (7Fh im Text = CR); Vorgabe leer.
+1200  0D 0D 0D 0D ..  FKTAB:  DEFB    0Dh,0Dh,0Dh,0Dh,0Dh,0Dh,0Dh,0Dh
+1208  0D 0D 0D 0D ..          DEFB    0Dh,0Dh,0Dh,0Dh,0Dh,0Dh,0Dh,0Dh
+1210  0D 0D 0D 0D ..          DEFB    0Dh,0Dh,0Dh,0Dh,00h,00h,00h,00h
+1218  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1220  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1228  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1230  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1238  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1240  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1248  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1250  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1258  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1260  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1268  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1270  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1278  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1280  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1288  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1290  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+1298  00 00 00 00 ..          DEFB    00h,00h,00h,00h,00h,00h,00h,00h
+                      
+                              END
+                      

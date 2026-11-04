@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tokenizer und Programmtext – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li class="cur"><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#token-format">Token-Format</a></li><li><a href="#crunch-und-listline">CRUNCH und LISTLINE</a></li><li><a href="#programmzeilen">Programmzeilen</a></li><li><a href="#delete-programmzeilen-loeschen">DELETE: Programmzeilen löschen</a></li><li><a href="#werkzeug">Werkzeug</a></li></ul></aside>
+<h1 id="tokenizer-und-programmtext">Tokenizer und Programmtext</h1>
+<p>Der Tokenizer ist unverändert aus SB-6511 übernommen; nur die Schlüsselworttabellen und die
+Adressen unterscheiden sich. Die ausführliche Beschreibung von CRUNCH und LISTLINE steht in der
+<a href="../../basic-sb6511/doku-basic/tokenizer.html">SB-6511-Dokumentation</a> und gilt Wort für Wort auch hier.</p>
+<h2 id="token-format">Token-Format</h2>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>80h, 80h+n</code></td>
+<td>Anweisung n aus <code>KWTAB_STMT</code> (1689h), Routine <code>STMT_TAB[n]</code> (1D8Ch)</td>
+</tr>
+<tr>
+<td><code>81h, …</code> / <code>82h, …</code></td>
+<td>Präfixe für zwei leere Erweiterungstabellen (<code>KWTAB_EXT81</code> 17E0h, <code>KWTAB_EXT82</code> 17E2h)</td>
+</tr>
+<tr>
+<td><code>83h+n</code></td>
+<td>Eintrag n der zusammenhängenden Tabelle <code>KWTAB_OPS</code> (17E4h) + <code>KWTAB_FUNC</code> (1809h) + <code>KWTAB_MATH</code> (1880h)</td>
+</tr>
+<tr>
+<td><code>9Dh</code></td>
+<td><strong><code>USING</code></strong> – in SB-6511 ein freier Platz</td>
+</tr>
+<tr>
+<td>sonst</td>
+<td>Zahlen, Variablennamen und Zeichen bleiben ASCII</td>
+</tr>
+</tbody>
+</table>
+<p>Alle Token-Nummern sind dieselben wie bei SB-6511. In <code>KWTAB_STMT</code> sind die Plätze 75 bis 80
+(bei SB-6511 GP-IB- und RS-232C-Befehle bis Nr. 99) frei; die Tabelle hat 81 statt 100
+Einträge, <code>STMT_TAB</code> endet bei <code>XOPEN</code> (Nr. 73). Freie Plätze stehen in der Tabelle als FFh und
+führen zu Fehler 1. Ein SB-6511-Programm mit GP-IB-Befehlen läuft daher nicht; umgekehrt kann
+SB-6511 <code>USING</code> nicht darstellen.</p>
+<p>Das Handbuch weist auf eine Folge unterschiedlicher Token-Nummern hin: Wandelt man Programme des
+Double-Precision-BASIC SP-6115 (Kassettenversion) mit dem Text Converter MZ-80T10C um, wird aus
+<code>PRINT USING</code> der Text <code>PRINT ERL</code>; man muss <code>ERL</code> von Hand wieder in <code>USING</code> ändern.</p>
+<h2 id="crunch-und-listline">CRUNCH und LISTLINE</h2>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CRUNCH</code></td>
+<td style="text-align: right;">154Bh</td>
+<td>Eingabezeile in <code>INBUF</code> tokenisieren, Ergebnis in <code>TOKLINE</code></td>
+</tr>
+<tr>
+<td><code>KWSEARCH</code></td>
+<td style="text-align: right;">15A8h</td>
+<td>Schlüsselwort in einer Tabelle suchen (Leerzeichen werden überlesen)</td>
+</tr>
+<tr>
+<td><code>COPYCHR</code></td>
+<td style="text-align: right;">1642h</td>
+<td>Zeichen übernehmen, Strings unverändert</td>
+</tr>
+<tr>
+<td><code>LISTLINE</code></td>
+<td style="text-align: right;">15D9h</td>
+<td>Programmzeile wieder in Klartext wandeln (LIST, Fehlermeldungen)</td>
+</tr>
+</tbody>
+</table>
+<p>Die Eigenheiten sind dieselben wie bei SB-6511: Schlüsselwörter werden auch mitten in Namen erkannt
+(<code>TOTAL</code> = <code>TO</code> + <code>TAL</code>), Leerzeichen innerhalb eines Schlüsselworts verschwinden, <code>?</code> wird zu
+<code>PRINT</code>, und hinter <code>REM</code>, <code>DATA</code> und <code>DEF KEY(</code> bleibt der Text bis zum nächsten <code>:</code> unverändert.
+<code>USING</code> wird wie jedes andere Einzelbyte-Token erkannt; ausgewertet wird es nur von <code>PRINT</code>
+(<a href="printusing.html">PRINT USING</a>).</p>
+<h2 id="programmzeilen">Programmzeilen</h2>
+<p>Im Speicher beginnt das Programm bei <code>PRGTXT</code> (68DDh). Jede Zeile hat die Form</p>
+<pre><code>[Link 2 Bytes][Zeilennummer 2 Bytes][Tokentext ... 0Dh]
+</code></pre>
+<p>und das Programm endet mit <code>00h 00h</code>. Im Speicher ist der Link absolut, in der Datei (Typ BTX)
+relativ zur Zeile; <code>RELINK</code> (1C89h) und <code>UNLINK</code> (1CE5h) rechnen um. Beim Laden ist das
+Dateiformat gleich dem von SB-6511, nur die Ladeadresse im MZF-Kopf ist 68DDh statt 725Ch.
+Programme ohne <code>USING</code> und ohne GP-IB-/RS-Befehle sind deshalb zwischen beiden BASICs austauschbar.</p>
+<h3 id="zeilen-eingeben">Zeilen eingeben</h3>
+<p><code>BAS_DIRECT</code> führt eine Zeile ohne Nummer sofort aus. Mit Nummer springt es nach <code>BD_EDIT</code>
+(133Bh): <code>READ</code> zurücksetzen, <code>CONT</code> sperren, mit <code>FINDLINE</code> (1A28h) eine
+vorhandene Zeile suchen und löschen (<code>EDIT_DEL</code>), dann die neue einfügen (Platz schaffen,
+Bereiche verschieben, Links korrigieren). Eine Zeile, die nur aus der Nummer besteht, löscht.
+Bei SB-6511 stand dieser Ablauf in der Routine <code>EDITLINE</code>.</p>
+<h2 id="delete-programmzeilen-loeschen">DELETE: Programmzeilen löschen</h2>
+<p><code>DELETE</code> hat in SB-6610 zwei Bedeutungen. <code>ST_DELLINES</code> (440Ah) prüft das erste Zeichen:
+Ist es eine Ziffer oder <code>-</code>, werden Programmzeilen gelöscht, sonst geht es zu <code>ST_DELETE</code>
+(4498h), das wie bei SB-6511 eine Datei löscht.</p>
+<table>
+<thead>
+<tr>
+<th>Eingabe</th>
+<th>Wirkung (laut Handbuch 2.4.2, im Emulator geprüft)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DELETE 10</code></td>
+<td>Zeile 10</td>
+</tr>
+<tr>
+<td><code>DELETE 10-</code></td>
+<td>ab Zeile 10 bis zum Ende</td>
+</tr>
+<tr>
+<td><code>DELETE -10</code></td>
+<td>vom Anfang bis Zeile 10</td>
+</tr>
+<tr>
+<td><code>DELETE 10-50</code></td>
+<td>Zeilen 10 bis 50</td>
+</tr>
+<tr>
+<td><code>DELETE "NAME"</code></td>
+<td>Datei löschen (wie SB-6511)</td>
+</tr>
+</tbody>
+</table>
+<p>Ablauf: Grenzen nach <code>DEL_FROM</code>/<code>DEL_TO</code> (a &gt; b: Fehler 1), ohne Programm nichts tun
+(<code>DL_CHKPRG</code>), die erste Zeile ≥ a suchen (<code>DL_FINDA</code>), hinter die letzte Zeile ≤ b laufen
+(<code>DL_FINDB</code>) und den Bereich dazwischen mit <code>EDIT_DELMEM</code> entfernen; dabei werden die folgenden
+Bereiche nachgezogen und die Links neu berechnet.</p>
+<h2 id="werkzeug">Werkzeug</h2>
+<p><code>tools/sb6511tok.py</code> bildet CRUNCH und LISTLINE nach. Mit <code>--basic 6610</code> benutzt es die Tabellen
+von SB-6610 (mit <code>USING</code>, ohne GP-IB/RS) und die Ladeadresse 68DDh:</p>
+<pre><code>python3 tools/sb6511tok.py --basic 6610 tok  PROG.BAS -o PROG.MZF
+python3 tools/sb6511tok.py --basic 6610 detok PROG.MZF -o PROG.BAS
+</code></pre>
+<p><code>make test</code> vergleicht die Nachbildung im Emulator mit dem Original (334 feste und zufällige Zeilen,
+alle identisch). Beim Auslesen von Disketten (<code>tools/sbdisk.py</code>) werden Programme, die Token 9Dh
+enthalten, automatisch als SB-6610-Programme gelistet; auf den vorhandenen Disketten benutzt
+allerdings keines <code>PRINT USING</code>.</p>
+<footer><div class="pn"><a class="prev" href="architektur.html">← Aufbau und Speicher</a><a class="next" href="interpreter.html">Interpreterschleife und Ablauf →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

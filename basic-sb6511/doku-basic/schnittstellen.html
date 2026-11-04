@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GP-IB und RS-232C – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li class="cur"><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#gp-ib-ieee-488">GP-IB (IEEE-488)</a></li><li><a href="#rs-232c-erweiterung">RS-232C-Erweiterung</a></li></ul></aside>
+<h1 id="gp-ib-und-rs-232c">GP-IB und RS-232C</h1>
+<p>SB-6511 enthält Befehle für zwei Schnittstellenkarten: die <strong>GP-IB-Karte</strong> (IEEE-488, für
+Messgeräte) und – in dieser Variante – eine <strong>RS-232C-Karte</strong> mit Z80-SIO. Beide werden beim
+Start und nach jedem Fehler von <code>IO_INIT</code> (5EEFh) initialisiert.</p>
+<h2 id="gp-ib-ieee-488">GP-IB (IEEE-488)</h2>
+<h3 id="hardware">Hardware</h3>
+<p>Die GP-IB-Karte wird über eine PIO und zwei weitere Register angesprochen. Die Bedeutung der
+Bits ist aus dem Code erschlossen; einige Statusbits sind noch unklar.</p>
+<table>
+<thead>
+<tr>
+<th>Port</th>
+<th>Name</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C0h</td>
+<td><code>GP_C0</code></td>
+<td>PIO Port A: Statuseingänge (Handshake, Bit 2 SRQ, Bit 4 EOI)</td>
+</tr>
+<tr>
+<td>C1h</td>
+<td><code>GP_C1</code></td>
+<td>PIO Port B: Steuerleitungen (Bit 0 REN, 1 IFC, 2 SRQ, 3 ATN); Bit 7 = Schnittstelle nicht bereit</td>
+</tr>
+<tr>
+<td>C2h, C3h</td>
+<td></td>
+<td>PIO-Steuerregister</td>
+</tr>
+<tr>
+<td>C4h</td>
+<td><code>GP_C4</code></td>
+<td>Datenbyte senden/empfangen</td>
+</tr>
+<tr>
+<td>C5h</td>
+<td><code>GP_C5</code></td>
+<td>Betriebsart der Schnittstelle (Kopie in <code>GP_C5COPY</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="betriebsarten-und-adressen">Betriebsarten und Adressen</h3>
+<p><code>GPIB [M|S] [, hörer [, sprecher]]</code> legt fest, ob der Rechner <strong>Controller</strong> (<code>M</code>) oder
+<strong>Gerät</strong> (<code>S</code>) ist, und setzt die eigenen Adressen (0–30; ohne Angabe ist die
+Sprecheradresse gleich der Höreradresse). Gespeichert wird das in <code>GP_MODE</code> (Bit 7
+Systemcontroller, Bit 6 Controller aktiv), <code>GP_MYLSN</code> (20h+n) und <code>GP_MYTLK</code> (40h+n).</p>
+<p>Gerätelisten werden mit <code>;</code> getrennt (<code>GET_ADDRS</code>, bis 14 Adressen). Höreradressen 0–30 werden
+zu 20h+n, Sprecheradressen 0–31 zu 40h+n; andere Werte ergeben Fehler 37.</p>
+<h3 id="befehle-als-controller">Befehle als Controller</h3>
+<p>Befehlsbytes werden mit gesetzter ATN-Leitung gesendet (<code>ATN_ON</code> … <code>ATN_OFF</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Busbefehle</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TRG adr[;adr…]</code></td>
+<td>UNL, Hörer, GET (08h)</td>
+<td>Geräte auslösen</td>
+</tr>
+<tr>
+<td><code>DCL [adr…]</code></td>
+<td>mit Adressen: UNL, Hörer, SDC (04h); sonst DCL (14h)</td>
+<td>Geräte zurücksetzen</td>
+</tr>
+<tr>
+<td><code>LCL [adr…]</code></td>
+<td>mit Adressen: GTL (01h); sonst REN abschalten</td>
+<td>Geräte in den Lokalbetrieb</td>
+</tr>
+<tr>
+<td><code>LLO</code></td>
+<td>LLO (11h)</td>
+<td>Lokalbedienung sperren</td>
+</tr>
+<tr>
+<td><code>PCT adr</code></td>
+<td>UNL, Sprecher, TCT (09h)</td>
+<td>Controllerrolle abgeben</td>
+</tr>
+<tr>
+<td><code>REN</code></td>
+<td>Port C1 Bit 0</td>
+<td>Remote Enable setzen</td>
+</tr>
+<tr>
+<td><code>ICL</code></td>
+<td>Port C1 Bit 1 kurz</td>
+<td>Interface Clear (nur Systemcontroller)</td>
+</tr>
+<tr>
+<td><code>WRT [/adr[;adr…],] ausdr[;…]</code></td>
+<td>(UNT, UNL, eigener Sprecher, Hörer), Daten</td>
+<td>Daten senden</td>
+</tr>
+<tr>
+<td><code>RED [/adr,] var[,var…]</code></td>
+<td>(UNL, eigener Hörer, Sprecher), Daten</td>
+<td>Daten empfangen</td>
+</tr>
+<tr>
+<td><code>CMD R|W, ausdr</code></td>
+<td>Text als Befehlsbytes mit ATN</td>
+<td>beliebige Busbefehle senden</td>
+</tr>
+<tr>
+<td><code>SPOL adr, var</code></td>
+<td>UNL, SPE (18h), Sprecher, Statusbyte, SPD (19h), UNT</td>
+<td>Serial Poll</td>
+</tr>
+<tr>
+<td><code>PPC adr, n</code></td>
+<td>Hörer, PPC (05h), PPE (68h+n), n = 0–7</td>
+<td>Parallel Poll konfigurieren</td>
+</tr>
+<tr>
+<td><code>PPOL var</code></td>
+<td></td>
+<td>Parallel Poll ausführen</td>
+</tr>
+<tr>
+<td><code>PPU</code></td>
+<td>PPU (15h)</td>
+<td>Parallel Poll aufheben</td>
+</tr>
+<tr>
+<td><code>ON SRQ GOTO z</code></td>
+<td></td>
+<td>bei Service Request zur Zeile z</td>
+</tr>
+</tbody>
+</table>
+<p><strong>WRT</strong> sammelt die Texte im Puffer bei 7074h (höchstens 500 Bytes, sonst Fehler 3) und sendet
+sie mit den Endezeichen <code>EOI_WCHR1/2</code> (Vorgabe 0Dh, 0Ah). Ein <code>;</code> am Ende unterdrückt sie. Ohne
+<code>/adr</code> muss die Karte bereits als Sprecher adressiert sein (Fehler 39).</p>
+<p><strong>RED</strong> liest eine Zeile bis EOI oder bis zu den Endezeichen <code>EOI_RCHR1/2</code> (Vorgabe 0Ah) nach
+<code>INBUF</code> (<code>GP_READLINE</code>) und verteilt die durch <code>,</code> getrennten Werte wie <code>INPUT</code> auf die
+Variablen. Zahlen werden mit <code>NUMSTR_EVAL</code> geprüft (sonst Fehler 4).</p>
+<p><strong>ON SRQ GOTO z</strong> setzt <code>SRQ_ON</code> und <code>SRQ_LINE</code>. Vor jeder neuen Programmzeile prüft <code>NL_SRQ</code> die
+SRQ-Leitung (Port C0h Bit 2); ist sie aktiv, geht es einmalig bei Zeile z weiter.</p>
+<h3 id="befehle-als-gerat">Befehle als Gerät</h3>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RDS var</code></td>
+<td>auf den Controller warten und dessen Befehle auswerten (<code>RDS_DECODE</code>: UNL, UNT, eigene Adressen, DCL, SDC, SPE/SPD, GET, TCT); das Ergebnis (<code>RDS_STATE</code>) kommt nach var. Bei einem Serial Poll wird <code>RQS_BYTE</code> gesendet</td>
+</tr>
+<tr>
+<td><code>RQSMSG= n</code></td>
+<td>Statusbyte für den Serial Poll festlegen</td>
+</tr>
+<tr>
+<td><code>SSRQ</code></td>
+<td>Service Request auslösen (Port C1 Bit 2)</td>
+</tr>
+<tr>
+<td><code>EOI R n[,m]</code> / <code>EOI W n[,m]</code></td>
+<td>Endezeichen für RED bzw. WRT (FFh = keins)</td>
+</tr>
+</tbody>
+</table>
+<p><code>CHK_SYSCTRL</code>, <code>CHK_NOTCTRL</code> und <code>CHK_IFREADY</code> prüfen die Betriebsart (falsch: Fehler 34) und die
+Bereitschaft der Karte (Fehler 35).</p>
+<h3 id="low-level-routinen">Low-Level-Routinen</h3>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GP_SENDBYTE</code> (6499h)</td>
+<td>Byte auf den Bus (Port C4h) mit Handshake; fehlt die Bestätigung: Fehler 36</td>
+</tr>
+<tr>
+<td><code>GP_RECVBYTE</code>, <code>GP_RECVACK</code></td>
+<td>Byte empfangen und quittieren</td>
+</tr>
+<tr>
+<td><code>SEND_ADDRS</code>, <code>SEND_BUF</code></td>
+<td>gesammelte Adressen bzw. BC Bytes ab DE senden</td>
+</tr>
+<tr>
+<td><code>GP_BRKCHK</code></td>
+<td>jedes Warten lässt sich mit BREAK abbrechen</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gp-ib-fehler">GP-IB-Fehler</h3>
+<table>
+<thead>
+<tr>
+<th>Nr.</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>34</td>
+<td>in dieser Betriebsart (Controller/Gerät) nicht möglich</td>
+</tr>
+<tr>
+<td>35</td>
+<td>Schnittstelle nicht bereit (Port C1 Bit 7)</td>
+</tr>
+<tr>
+<td>36</td>
+<td>keine Bestätigung beim Senden</td>
+</tr>
+<tr>
+<td>37</td>
+<td>ungültige Geräteadresse</td>
+</tr>
+<tr>
+<td>38</td>
+<td>Bedeutung unklar</td>
+</tr>
+<tr>
+<td>39</td>
+<td>nicht als Sprecher bzw. Hörer adressiert</td>
+</tr>
+</tbody>
+</table>
+<h2 id="rs-232c-erweiterung">RS-232C-Erweiterung</h2>
+<p>Die RS-232C-Befehle sind eine spätere Anpassung. Sie stehen bei 6600h–68ABh in einem Bereich,
+der vorher eine Kopie von 560Bh–56A9h enthielt (die alte Kopie <code>OLD_COPY</code> steht noch bei 6561h),
+und sind mit nur zwei Eingriffen eingebunden:</p>
+<ul>
+<li>die Einträge 96–98 in <code>STMT_TAB</code> und die Wörter <code>RSO</code>, <code>RSI</code>, <code>RSMODE</code> in <code>KWTAB_STMT</code>,</li>
+<li><code>JP SIO_INIT</code> am Ende von <code>IO_INIT</code> (5F03h): beim BASIC-Start und nach Fehlern wird die SIO
+  neu initialisiert.</li>
+</ul>
+<h3 id="hardware_1">Hardware</h3>
+<p>Z80-SIO an den Ports B0h (Kanal A Daten), B1h (A Steuerung), B2h (B Daten), B3h (B Steuerung).
+Die Baudrate wird nicht per Software eingestellt; sie kommt vom Takt der Karte.</p>
+<p>Grundeinstellung (<code>SIO_INITTAB</code>, 13 Bytes per <code>OTIR</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Register</th>
+<th>Wert</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WR0</td>
+<td>18h, 10h, 10h</td>
+<td>Kanal-Reset, Ext/Status-Interrupts zurücksetzen</td>
+</tr>
+<tr>
+<td>WR2</td>
+<td>(Vektor)</td>
+<td>Interruptvektor, von <code>SIO_INIT</code> eingetragen</td>
+</tr>
+<tr>
+<td>WR4</td>
+<td>4Fh</td>
+<td>Takt ×16, 2 Stoppbits, gerade Parität (änderbar mit <code>RSMODE M</code>)</td>
+</tr>
+<tr>
+<td>WR1</td>
+<td>14h</td>
+<td>Rx-Interrupt bei jedem Zeichen, „Status affects vector“</td>
+</tr>
+<tr>
+<td>WR3</td>
+<td>C0h</td>
+<td>Rx 8 Bit, Empfänger aus (<code>RSMODE R</code>/<code>RX</code>)</td>
+</tr>
+<tr>
+<td>WR5</td>
+<td>EAh</td>
+<td>DTR, Tx 8 Bit, Sender ein, RTS (<code>RSMODE T</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="befehle">Befehle</h3>
+<pre><code>RSMODE {A|B} [,R n] [,T n] [,M n] [,RX n]
+RSO {A|B}, ausdruck
+RSI {A|B}, var[,var…]
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RSMODE</code></td>
+<td>Kanal wählen; <code>R n</code>/<code>T n</code> Empfangs-/Sende-Datenbits 5–8; <code>M n</code> Byte für WR4 direkt (Taktteiler, Stoppbits, Parität); <code>RX n</code>: n ≠ 0 Empfänger ein, Ringpuffer leeren, Interrupts ein, n = 0 Empfänger aus. <code>RX</code> beendet die Anweisung</td>
+</tr>
+<tr>
+<td><code>RSO</code></td>
+<td>Ausdruck in einen String wandeln und zeichenweise senden, abgeschlossen mit CR (0Dh). Kein Hardware-Handshake; Sende-Timeout: Fehler 32</td>
+</tr>
+<tr>
+<td><code>RSI</code></td>
+<td>warten (mit BREAK abbrechbar), bis im Ringpuffer eine Zeile mit CR steht, sie nach <code>INBUF</code> kopieren und über den Zuweisungscode von <code>RED</code> auf die Variablen verteilen</td>
+</tr>
+</tbody>
+</table>
+<h3 id="empfang-per-interrupt">Empfang per Interrupt</h3>
+<p>Der Empfang läuft im Interruptmodus 2: das I-Register ist 66h, die Vektortabelle
+<code>SIO_VECTORS</code> liegt bei 6600h. Jeder Kanal hat einen <strong>256-Byte-Ringpuffer</strong> genau auf einer
+Speicherseite (A: 6900h–69FFh, B: 6A00h–6AFFh). Die Zeiger (<code>RXA_WR</code>/<code>RXA_RD</code>,
+<code>RXB_WR</code>/<code>RXB_RD</code>) werden nur im Low-Byte erhöht und laufen dadurch von selbst um.</p>
+<ul>
+<li><code>SIO_RXA_INT</code>/<code>SIO_RXB_INT</code>: Zeichen lesen, auf die Datenbits maskieren, in den Puffer
+  schreiben. Holt der Schreibzeiger den Lesezeiger ein, wird die SIO zurückgesetzt und direkt
+  aus der Interruptroutine Fehler 33 ausgelöst (der Fehlerbehandler setzt den Stack zurück).</li>
+<li><code>SIO_SPA_INT</code>/<code>SIO_SPB_INT</code> (Sonderempfangsbedingung): RR1 lesen und als Fehler 29
+  (Framing), 30 (Überlauf) oder 31 (Parität) melden.</li>
+<li><code>RXA_GET</code>: Zeichen aus dem Puffer holen (CY = 1 und A = Zeichen, CY = 0 bei leerem Puffer).</li>
+</ul>
+<p><code>SIO_INIT</code> hinterlässt <code>DI</code>; Interrupts werden erst durch <code>RSMODE …,RX n</code> wieder freigegeben.</p>
+<h3 id="nicht-benutzt-rs_term">Nicht benutzt: RS_TERM</h3>
+<p>Die Routine <code>RS_TERM</code> wird nirgends aufgerufen. Sie soll die Tastatureingabe umleiten
+(Zeichen von der RS-232C oder der Tastatur, Tastendrücke über Kanal A hinaus – ein einfaches
+Terminal) und patcht dazu die Adresse 06E0h. In diesem Monitor steht dort aber der Befehl
+<code>CALL KEYSCAN</code>; die Routine passt offenbar zu einer anderen Monitorversion und würde hier den
+Code zerstören.</p>
+<h3 id="rs-232c-fehler">RS-232C-Fehler</h3>
+<table>
+<thead>
+<tr>
+<th>Nr.</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>29</td>
+<td>Framing-Fehler (SIO RR1 Bit 6)</td>
+</tr>
+<tr>
+<td>30</td>
+<td>Empfangs-Überlauf (SIO RR1 Bit 5)</td>
+</tr>
+<tr>
+<td>31</td>
+<td>Paritätsfehler (SIO RR1 Bit 4)</td>
+</tr>
+<tr>
+<td>32</td>
+<td>Sende-Timeout</td>
+</tr>
+<tr>
+<td>33</td>
+<td>Empfangspuffer (256 Bytes) übergelaufen</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="grafik.html">← Grafik, Bildschirm, Drucker</a><a class="next" href="fehler.html">Fehler und Fehlerbehandlung →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

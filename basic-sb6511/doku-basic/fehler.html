@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fehler und Fehlerbehandlung – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li class="cur"><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#meldungen">Meldungen</a></li><li><a href="#ablauf-eines-fehlers">Ablauf eines Fehlers</a></li><li><a href="#on-error-resume-erl-ern">ON ERROR, RESUME, ERL, ERN</a></li><li><a href="#fehlernummern">Fehlernummern</a></li></ul></aside>
+<h1 id="fehler-und-fehlerbehandlung">Fehler und Fehlerbehandlung</h1>
+<h2 id="meldungen">Meldungen</h2>
+<p>SB-6511 meldet Fehler nur mit einer Nummer:</p>
+<pre><code>*Error 16 in 120
+*Break in 300
+*STOP IN 40
+</code></pre>
+<p>Im Direktmodus entfällt „in zeile“. Klartextmeldungen gibt es im Interpreter nicht; die
+Bedeutung steht im Handbuch – und, soweit erschlossen, in der Tabelle unten.</p>
+<h2 id="ablauf-eines-fehlers">Ablauf eines Fehlers</h2>
+<p>Ein Fehler wird mit <code>JP ERR_nn</code> ausgelöst. Die Kette der Einsprünge (<code>LD A,n</code> / <code>DEFB 01h</code>,
+siehe <a href="interpreter.html#programmiertechniken-im-code">Interpreter</a>) führt mit der Nummer in A nach
+<code>ERROR</code> (14E3h):</p>
+<ol>
+<li>Nummer in <code>ERRNUM</code> merken.</li>
+<li>Alle Dateien und Geräte aufräumen (<code>CLOSE_ALL</code>), Links des Programms wieder absolut machen
+   (<code>RELINK</code> – falls der Fehler mitten in SAVE auftrat).</li>
+<li><strong>Programmmodus mit aktivem ON ERROR</strong> (<code>ONERR_FLAG</code> = 1): <code>ONERR_FLAG</code> := 2, Stack auf
+   <code>STKTOP</code> zurücksetzen und bei der Zeile <code>ONERR_LINE</code> weitermachen.</li>
+<li>Sonst: <code>ON ERROR</code> abschalten, FOR/GOSUB/FN-Stacks zurücksetzen (<code>INITVARPTR</code>), Dateitabelle
+   und Puffer freigeben (<code>CLEARVARS</code>) – Variablen bleiben erhalten.</li>
+<li><code>*Error n</code> ausgeben, im Programmmodus <code>in zeile</code>, Piepton, <code>AUTO</code> aus, zurück nach
+   <code>BAS_READY</code>.</li>
+</ol>
+<p>Fehler in Gerätetreibern (Floppy, Drucker, Kassette) laufen über <code>SET_IOERR</code>: IY zeigt auf
+<code>IOERR</code>; der Treiber schreibt die Nummer nach <code>IOERR_NUM</code> (IY−1) und springt mit <code>JP (IY)</code>.</p>
+<h3 id="break">BREAK</h3>
+<p>Vor jeder Anweisung (<code>EXECSTMT2</code>) und in allen Warteschleifen wird die BREAK-Taste abgefragt.
+<code>BREAK</code> gibt <code>*Break</code> (und im Programm <code>in zeile</code>) aus; zuvor hat <code>CONT_POS</code> die Stelle
+gesichert, sodass <code>CONT</code> die unterbrochene Anweisung wiederholt.</p>
+<h2 id="on-error-resume-erl-ern">ON ERROR, RESUME, ERL, ERN</h2>
+<pre><code class="language-basic">10 ON ERROR GOTO 1000
+20 INPUT &quot;DATEI&quot;;N$
+30 ROPEN #1, N$
+...
+1000 IF ERN=40 THEN PRINT &quot;NICHT GEFUNDEN&quot;:RESUME 20
+1010 PRINT &quot;FEHLER&quot;;ERN;&quot;IN&quot;;ERL:END
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ON ERROR GOTO z</code></td>
+<td>Behandler setzen (<code>ONERR_FLAG</code> = 1, <code>ONERR_LINE</code> = z); nur im Programm</td>
+</tr>
+<tr>
+<td>vor jeder Anweisung</td>
+<td><code>ERRCTX_SAVE</code> sichert <code>CURLINE</code> und <code>TXTPTR</code> nach <code>ERRCTX_*</code></td>
+</tr>
+<tr>
+<td>im Fehlerfall</td>
+<td><code>ONERR_FLAG</code> = 2, Sprung nach z</td>
+</tr>
+<tr>
+<td><code>ERN</code>, <code>ERL</code></td>
+<td>Nummer bzw. Zeile des Fehlers</td>
+</tr>
+<tr>
+<td><code>RESUME</code></td>
+<td>fehlerhafte Anweisung wiederholen (<code>ERRCTX</code> zurückholen)</td>
+</tr>
+<tr>
+<td><code>RESUME NEXT</code></td>
+<td>mit der Anweisung danach weitermachen</td>
+</tr>
+<tr>
+<td><code>RESUME z</code></td>
+<td>bei Zeile z weitermachen</td>
+</tr>
+<tr>
+<td><code>RESUME 0</code></td>
+<td><code>ON ERROR</code> abschalten und das Programm wie mit RUN neu starten</td>
+</tr>
+</tbody>
+</table>
+<p><code>RESUME</code> ist nur im Fehlerbehandler erlaubt (<code>ONERR_FLAG</code> = 2), sonst Fehler 21. Ein Fehler
+<strong>im</strong> Behandler (Flag schon 2) wird nicht noch einmal abgefangen, sondern normal gemeldet.</p>
+<h2 id="fehlernummern">Fehlernummern</h2>
+<p>Die Nummern stammen aus den Einsprüngen <code>ERR_01</code>–<code>ERR_70</code>. Die Bedeutung ist aus den
+Aufrufstellen erschlossen; Nummern ohne Text werden von keiner gefundenen Stelle ausgelöst oder
+ihre Ursache ist unklar.</p>
+<h3 id="allgemein-128">Allgemein (1–28)</h3>
+<table>
+<thead>
+<tr>
+<th>Nr.</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Syntaxfehler (auch freie Token, <code>THEN</code>/<code>EOF(</code> außerhalb von IF, <code>TAB(</code> außerhalb von PRINT)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Überlauf (auch Division durch 0, LN negativ)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Wert außerhalb des zulässigen Bereichs (Parameter, Feldindex, Feld ohne DIM, SQR negativ …)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Typfehler: Zahl und String verwechselt</td>
+</tr>
+<tr>
+<td>5</td>
+<td>String zu lang (&gt; 255 Zeichen)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Speicher voll</td>
+</tr>
+<tr>
+<td>7</td>
+<td>–</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Zeile zu lang (&gt; 255 Zeichen beim Tokenisieren)</td>
+</tr>
+<tr>
+<td>9</td>
+<td>–</td>
+</tr>
+<tr>
+<td>10</td>
+<td>GOSUB zu tief verschachtelt (max. 15)</td>
+</tr>
+<tr>
+<td>11</td>
+<td>FOR zu tief verschachtelt (max. 15)</td>
+</tr>
+<tr>
+<td>12</td>
+<td>FN zu tief verschachtelt (max. 5)</td>
+</tr>
+<tr>
+<td>13</td>
+<td>NEXT ohne FOR</td>
+</tr>
+<tr>
+<td>14</td>
+<td>RETURN ohne GOSUB</td>
+</tr>
+<tr>
+<td>15</td>
+<td>FN nicht definiert</td>
+</tr>
+<tr>
+<td>16</td>
+<td>Zeilennummer nicht vorhanden</td>
+</tr>
+<tr>
+<td>17</td>
+<td>CONT nicht möglich</td>
+</tr>
+<tr>
+<td>18</td>
+<td>Adresse im BASIC-Bereich (unter LIMIT bzw. belegt)</td>
+</tr>
+<tr>
+<td>19</td>
+<td>im Direkt- bzw. Programmmodus nicht erlaubt</td>
+</tr>
+<tr>
+<td>20</td>
+<td>–</td>
+</tr>
+<tr>
+<td>21</td>
+<td>RESUME ohne Fehler</td>
+</tr>
+<tr>
+<td>22, 23</td>
+<td>–</td>
+</tr>
+<tr>
+<td>24</td>
+<td>keine DATA mehr</td>
+</tr>
+<tr>
+<td>25</td>
+<td>SWAP während SWAP</td>
+</tr>
+<tr>
+<td>26–28</td>
+<td>–</td>
+</tr>
+</tbody>
+</table>
+<h3 id="rs-232c-2933-und-gp-ib-3439">RS-232C (29–33) und GP-IB (34–39)</h3>
+<table>
+<thead>
+<tr>
+<th>Nr.</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>29</td>
+<td>RS-232C: Framing-Fehler</td>
+</tr>
+<tr>
+<td>30</td>
+<td>RS-232C: Empfangs-Überlauf (SIO)</td>
+</tr>
+<tr>
+<td>31</td>
+<td>RS-232C: Paritätsfehler</td>
+</tr>
+<tr>
+<td>32</td>
+<td>RS-232C: Sende-Timeout</td>
+</tr>
+<tr>
+<td>33</td>
+<td>RS-232C: Empfangspuffer voll</td>
+</tr>
+<tr>
+<td>34</td>
+<td>GP-IB: in dieser Betriebsart nicht möglich</td>
+</tr>
+<tr>
+<td>35</td>
+<td>GP-IB: Schnittstelle nicht bereit</td>
+</tr>
+<tr>
+<td>36</td>
+<td>GP-IB: keine Bestätigung beim Senden</td>
+</tr>
+<tr>
+<td>37</td>
+<td>GP-IB: ungültige Geräteadresse</td>
+</tr>
+<tr>
+<td>38</td>
+<td>– (unklar)</td>
+</tr>
+<tr>
+<td>39</td>
+<td>GP-IB: nicht als Sprecher bzw. Hörer adressiert</td>
+</tr>
+</tbody>
+</table>
+<h3 id="dateien-und-gerate-4070">Dateien und Geräte (40–70)</h3>
+<table>
+<thead>
+<tr>
+<th>Nr.</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>40</td>
+<td>Datei nicht gefunden</td>
+</tr>
+<tr>
+<td>41</td>
+<td>Diskette: Lese-/Schreibfehler, auch Schreibschutz</td>
+</tr>
+<tr>
+<td>42</td>
+<td>Datei existiert bereits</td>
+</tr>
+<tr>
+<td>43</td>
+<td>Datei ist geöffnet</td>
+</tr>
+<tr>
+<td>44</td>
+<td>Datei nicht bzw. nicht in diesem Modus geöffnet</td>
+</tr>
+<tr>
+<td>45</td>
+<td>–</td>
+</tr>
+<tr>
+<td>46</td>
+<td>Datei gesperrt (LOCK)</td>
+</tr>
+<tr>
+<td>47–49</td>
+<td>–</td>
+</tr>
+<tr>
+<td>50</td>
+<td>Diskette: Laufwerk nicht bereit</td>
+</tr>
+<tr>
+<td>51</td>
+<td>Verzeichnis voll</td>
+</tr>
+<tr>
+<td>52</td>
+<td>falsche Diskette bzw. Volumennummer</td>
+</tr>
+<tr>
+<td>53</td>
+<td>Diskette voll</td>
+</tr>
+<tr>
+<td>54</td>
+<td>Diskette: Sektor nicht gefunden</td>
+</tr>
+<tr>
+<td>55</td>
+<td>Datei zu groß</td>
+</tr>
+<tr>
+<td>56–59</td>
+<td>–</td>
+</tr>
+<tr>
+<td>60</td>
+<td>ungültiger Dateiname</td>
+</tr>
+<tr>
+<td>61</td>
+<td>ungültiges Laufwerk</td>
+</tr>
+<tr>
+<td>62</td>
+<td>–</td>
+</tr>
+<tr>
+<td>63</td>
+<td>falscher Dateityp</td>
+</tr>
+<tr>
+<td>64</td>
+<td>ungültige Dateinummer</td>
+</tr>
+<tr>
+<td>65</td>
+<td>Drucker antwortet nicht (Zeitüberschreitung)</td>
+</tr>
+<tr>
+<td>66</td>
+<td>Drucker meldet Fehler (Status ESC 04h)</td>
+</tr>
+<tr>
+<td>67</td>
+<td>Drucker meldet Fehler (Status ESC 03h)</td>
+</tr>
+<tr>
+<td>68, 69</td>
+<td>–</td>
+</tr>
+<tr>
+<td>70</td>
+<td>Kassette: Lesefehler</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="schnittstellen.html">← GP-IB und RS-232C</a><a class="next" href="erweitern.html">Einen Befehl einbauen →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

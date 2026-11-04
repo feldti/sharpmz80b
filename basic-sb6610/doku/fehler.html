@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fehler und Fehlerbehandlung – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li class="cur"><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#meldungen">Meldungen</a></li><li><a href="#ablauf-eines-fehlers">Ablauf eines Fehlers</a></li><li><a href="#fehlernummern">Fehlernummern</a></li><li><a href="#unterschiede-zu-sb-6511">Unterschiede zu SB-6511</a></li></ul></aside>
+<h1 id="fehler-und-fehlerbehandlung">Fehler und Fehlerbehandlung</h1>
+<p>Die Fehlerbehandlung ist dieselbe wie bei SB-6511
+(<a href="../../basic-sb6511/doku-basic/fehler.html">SB-6511: Fehler</a>). Neu sind nur einzelne Zuordnungen von
+Fehlernummern, und die Nummern der weggefallenen Schnittstellen werden nicht mehr ausgelöst.</p>
+<h2 id="meldungen">Meldungen</h2>
+<table>
+<thead>
+<tr>
+<th>Meldung</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>*Error n</code></td>
+<td>Fehler n im Direktmodus</td>
+</tr>
+<tr>
+<td><code>*Error n in z</code></td>
+<td>Fehler n in Programmzeile z</td>
+</tr>
+<tr>
+<td><code>*Break</code> / <code>*Break in z</code></td>
+<td>Abbruch mit der BREAK-Taste</td>
+</tr>
+<tr>
+<td><code>Ready</code></td>
+<td>bereit für die nächste Eingabe</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ablauf-eines-fehlers">Ablauf eines Fehlers</h2>
+<p>Jeder Fehler springt in die Kette <code>ERR_01</code> … <code>ERR_70</code> (ab 13FEh): Jeder Einsprung lädt seine
+Nummer in A, das folgende <code>DEFB 01h</code> (= <code>LD BC,nn</code>) verschluckt die übrigen <code>LD A,n</code>, am Ende geht
+es nach <code>ERROR</code> (14DAh):</p>
+<ol>
+<li>Nummer nach <code>ERRNUM</code>. Läuft gerade der Autostart (<code>RUN FDn"AUTO RUN"</code> beim Einschalten), geht
+   es ohne Meldung nach „Ready“ – fehlt <code>AUTO RUN</code> auf der Diskette, sieht man also nichts.</li>
+<li>Dateien und Geräte schließen (<code>CLOSE_ALL</code>), Links wiederherstellen (<code>RELINK</code>).</li>
+<li>Im Programm mit aktivem <code>ON ERROR GOTO</code> (<code>ONERR_FLAG</code> = 1): Flag auf 2, Stack zurücksetzen und
+   zur Behandlerzeile springen. <code>ERL</code> und <code>ERN</code> liefern dann Zeile und Nummer, <code>RESUME</code> kehrt zurück.</li>
+<li>Sonst: <code>ON ERROR</code> aus, Stacks und Variablen löschen, <code>*Error n</code> (im Programm mit <code>in z</code>),
+   Piepton, „Ready“.</li>
+</ol>
+<h2 id="fehlernummern">Fehlernummern</h2>
+<p>Die Tabelle verbindet die Deutung aus dem Code (Kommentar in der Kette) mit dem Text aus Anhang A.2
+des Handbuchs. Nummern ohne Handbuchtext sind dort leer.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Nr.</th>
+<th>Bedeutung (aus dem Code)</th>
+<th>Handbuch (A.2)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td>Syntax-Fehler</td>
+<td>Syntax error</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td>Überlauf (auch Division durch 0, LN negativ)</td>
+<td>Operation result overflow</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td>Wert außerhalb des Bereichs / Überlauf</td>
+<td>Illegal data</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td>Typfehler (Zahl/String verwechselt)</td>
+<td>Data type mismatch</td>
+</tr>
+<tr>
+<td style="text-align: right;">5</td>
+<td>String zu lang (&gt; 255 Zeichen)</td>
+<td>String length exceeded 255 characters</td>
+</tr>
+<tr>
+<td style="text-align: right;">6</td>
+<td>Speicher voll</td>
+<td>Insufficient memory capacity</td>
+</tr>
+<tr>
+<td style="text-align: right;">7</td>
+<td>–</td>
+<td>The size of an array defined was larger than that defined previously</td>
+</tr>
+<tr>
+<td style="text-align: right;">8</td>
+<td>Zeile zu lang (CRUNCH)</td>
+<td>The length of a BASIC text line was too long</td>
+</tr>
+<tr>
+<td style="text-align: right;">9</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td>GOSUB zu tief verschachtelt (max. 15)</td>
+<td>The number of levels of GOSUB nests exceeded 15</td>
+</tr>
+<tr>
+<td style="text-align: right;">11</td>
+<td>FOR zu tief verschachtelt (max. 15)</td>
+<td>The number of levels of FOR-NEXT nests exceeded 15</td>
+</tr>
+<tr>
+<td style="text-align: right;">12</td>
+<td>FN zu tief verschachtelt</td>
+<td>The number of levels of functions exceeded 6</td>
+</tr>
+<tr>
+<td style="text-align: right;">13</td>
+<td>NEXT ohne FOR</td>
+<td>NEXT was used without a corresponding FOR</td>
+</tr>
+<tr>
+<td style="text-align: right;">14</td>
+<td>RETURN ohne GOSUB</td>
+<td>RETURN was used without a corresponding GOSUB</td>
+</tr>
+<tr>
+<td style="text-align: right;">15</td>
+<td>FN nicht definiert</td>
+<td>Undefined function was used</td>
+</tr>
+<tr>
+<td style="text-align: right;">16</td>
+<td>Zeilennummer nicht vorhanden</td>
+<td>Unused reference line number was specified in a statement</td>
+</tr>
+<tr>
+<td style="text-align: right;">17</td>
+<td>CONT nicht möglich</td>
+<td>CONT command cannot be executed</td>
+</tr>
+<tr>
+<td style="text-align: right;">18</td>
+<td>Adresse im BASIC-Bereich (unter LIMIT bzw. belegt)</td>
+<td>A writing statement was issued to the BASIC control area</td>
+</tr>
+<tr>
+<td style="text-align: right;">19</td>
+<td>im Direkt- bzw. Programmmodus nicht erlaubt</td>
+<td>Direct mode commands and statements are mixed together</td>
+</tr>
+<tr>
+<td style="text-align: right;">20</td>
+<td>–</td>
+<td>RESUME statement cannot be executed</td>
+</tr>
+<tr>
+<td style="text-align: right;">21</td>
+<td>RESUME ohne Fehler</td>
+<td>A RESUME statement was used without a corresponding error process</td>
+</tr>
+<tr>
+<td style="text-align: right;">22</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">23</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">24</td>
+<td>keine DATA mehr</td>
+<td>A READ statement was used without a corresponding DATA statement</td>
+</tr>
+<tr>
+<td style="text-align: right;">25</td>
+<td>SWAP während SWAP</td>
+<td>The number of SWAP levels exceeded 1</td>
+</tr>
+<tr>
+<td style="text-align: right;">26</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">27</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">28</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">29</td>
+<td>RS-232C: Framing-Fehler (SIO RR1 Bit 6) – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">30</td>
+<td>RS-232C: Empfangs-Überlauf (SIO RR1 Bit 5) – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">31</td>
+<td>RS-232C: Paritätsfehler (SIO RR1 Bit 4) – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">32</td>
+<td>RS-232C: Sende-Timeout (Sendepuffer wird nicht leer) – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">33</td>
+<td>RS-232C: Empfangspuffer voll (256 Byte Ringpuffer übergelaufen) – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">34</td>
+<td>GP-IB: in dieser Betriebsart nicht möglich (Controller/Gerät) – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">35</td>
+<td>GP-IB: Schnittstelle nicht bereit (Port C1 Bit 7) – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">36</td>
+<td>GP-IB: keine Bestätigung beim Senden – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">37</td>
+<td>GP-IB: ungültige Geräteadresse – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">38</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">39</td>
+<td>GP-IB: nicht als Sprecher bzw. Hörer adressiert – in SB-6610 unbenutzt</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">40</td>
+<td>Datei nicht gefunden</td>
+<td>File was not found</td>
+</tr>
+<tr>
+<td style="text-align: right;">41</td>
+<td>Diskette: Lese-/Schreibfehler, auch Schreibschutz</td>
+<td>Disk drive hardware error</td>
+</tr>
+<tr>
+<td style="text-align: right;">42</td>
+<td>Datei existiert bereits</td>
+<td>A file name already used was defined again</td>
+</tr>
+<tr>
+<td style="text-align: right;">43</td>
+<td>Datei ist geöffnet</td>
+<td>OPEN, DELETE, RENAME statements were issued to an open file</td>
+</tr>
+<tr>
+<td style="text-align: right;">44</td>
+<td>Datei nicht bzw. nicht in diesem Modus geöffnet</td>
+<td>An unopened file was referenced or a CLOSE or KILL statement was issued to it</td>
+</tr>
+<tr>
+<td style="text-align: right;">45</td>
+<td>Datei in anderem Modus als bei ROPEN/WOPEN/XOPEN benutzt (SB-6511: 44)</td>
+<td>A file was accessed in different mode from ROPEN, WOPEN or XOPEN</td>
+</tr>
+<tr>
+<td style="text-align: right;">46</td>
+<td>Datei gesperrt (LOCK)</td>
+<td>A protected file was accessed for writing</td>
+</tr>
+<tr>
+<td style="text-align: right;">47</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">48</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">49</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">50</td>
+<td>Diskette: Laufwerk nicht bereit</td>
+<td>The disk drive is not ready</td>
+</tr>
+<tr>
+<td style="text-align: right;">51</td>
+<td>Verzeichnis voll</td>
+<td>The total number of files on a volume exceeded 63</td>
+</tr>
+<tr>
+<td style="text-align: right;">52</td>
+<td>falsche Diskette bzw. Volumennummer</td>
+<td>Volume number error</td>
+</tr>
+<tr>
+<td style="text-align: right;">53</td>
+<td>Diskette voll</td>
+<td>File space on the diskette is insufficient</td>
+</tr>
+<tr>
+<td style="text-align: right;">54</td>
+<td>Diskette: Sektor nicht gefunden</td>
+<td>A diskette which has not been initialized was loaded</td>
+</tr>
+<tr>
+<td style="text-align: right;">55</td>
+<td>Datei zu groß</td>
+<td>The number of data of a BSD file exceeded 64K bytes</td>
+</tr>
+<tr>
+<td style="text-align: right;">56</td>
+<td>–</td>
+<td>Data error occurred on an FDC routine call</td>
+</tr>
+<tr>
+<td style="text-align: right;">57</td>
+<td>–</td>
+<td>The diskette cannot be used</td>
+</tr>
+<tr>
+<td style="text-align: right;">58</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">59</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">60</td>
+<td>ungültiger Dateiname</td>
+<td>Illegal file name was specified</td>
+</tr>
+<tr>
+<td style="text-align: right;">61</td>
+<td>ungültiges Laufwerk</td>
+<td>Illegal file mode was specified</td>
+</tr>
+<tr>
+<td style="text-align: right;">62</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">63</td>
+<td>falscher Dateityp</td>
+<td>Out of file</td>
+</tr>
+<tr>
+<td style="text-align: right;">64</td>
+<td>ungültige Dateinummer</td>
+<td>Illegal logical number was specified</td>
+</tr>
+<tr>
+<td style="text-align: right;">65</td>
+<td>Drucker antwortet nicht (Zeitüberschreitung)</td>
+<td>The printer is not ready</td>
+</tr>
+<tr>
+<td style="text-align: right;">66</td>
+<td>Drucker meldet Fehler (Status ESC 04h)</td>
+<td>Printer hardware error</td>
+</tr>
+<tr>
+<td style="text-align: right;">67</td>
+<td>Drucker meldet Fehler (Status ESC 03h)</td>
+<td>Out of paper</td>
+</tr>
+<tr>
+<td style="text-align: right;">68</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">69</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td style="text-align: right;">70</td>
+<td>Kassette: Lesefehler</td>
+<td>Check sum error</td>
+</tr>
+</tbody>
+</table>
+<h2 id="unterschiede-zu-sb-6511">Unterschiede zu SB-6511</h2>
+<ul>
+<li><strong>45</strong> statt 44, wenn eine Datei in einem anderen Modus benutzt wird, als sie geöffnet wurde
+  (<code>FILE_GET</code>, <code>FILE_PUT</code>).</li>
+<li><strong>53</strong> statt 55, wenn eine sequentielle Datei beim Schreiben über 64 KB wachsen würde.</li>
+<li><strong>29–39</strong> (RS-232C und GP-IB) stehen noch in der Kette, werden aber nicht mehr ausgelöst.</li>
+<li><strong>1</strong> für die fehlenden Funktionen <code>^</code>, <code>SIN</code>, <code>COS</code>, <code>TAN</code>, <code>ATN</code>, <code>EXP</code>, <code>LOG</code>, <code>LN</code> und für
+  <code>APPEND</code>, außerdem bei unzulässigen <code>PRINT USING</code>-Schablonen und Zahlen in Exponentform unter
+  <code>USING</code>.</li>
+<li><strong>2</strong> für Überlauf über 9.999999999999999E+78 und Division durch 0; kleinere Beträge als 1E-48
+  werden ohne Fehler zu 0.</li>
+<li><strong>3</strong> sofort, wenn ein Wert für einen Befehl (Adresse, Index …) eine Million oder mehr beträgt:
+  <code>VAL2UINT</code> prüft dafür die oberen zehn Ziffern. Werte zwischen 65536 und 999999 und negative
+  Werte meldet wie bei SB-6511 der aufrufende Befehl (meist ebenfalls Fehler 3). Außerdem bei
+  <code>DIM</code> mit einem ersten Index über 255 in einem zweidimensionalen Feld.</li>
+</ul>
+<footer><div class="pn"><a class="prev" href="ein-ausgabe.html">← Ein-/Ausgabe, Dateien, Drucker</a><a class="next" href="erweitern.html">Erweitern und Verschieben →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

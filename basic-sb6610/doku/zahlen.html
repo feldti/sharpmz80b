@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BCD-Zahlen und Arithmetik – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li class="cur"><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#zahlformat">Zahlformat</a></li><li><a href="#grundbausteine">Grundbausteine</a></li><li><a href="#addition-und-subtraktion">Addition und Subtraktion</a></li><li><a href="#multiplikation-und-division">Multiplikation und Division</a></li><li><a href="#quadratwurzel">Quadratwurzel</a></li><li><a href="#vergleich-abs-sgn">Vergleich, ABS, SGN</a></li><li><a href="#int">INT</a></li><li><a href="#rnd">RND</a></li><li><a href="#umwandlung-zwischen-text-und-zahl">Umwandlung zwischen Text und Zahl</a></li><li><a href="#ganze-zahlen-fuer-befehle">Ganze Zahlen für Befehle</a></li><li><a href="#genauigkeit-und-eigenheiten">Genauigkeit und Eigenheiten</a></li><li><a href="#fehlende-funktionen">Fehlende Funktionen</a></li></ul></aside>
+<h1 id="bcd-zahlen-und-arithmetik">BCD-Zahlen und Arithmetik</h1>
+<p>Der größte Unterschied zu SB-6511: Statt binärer Gleitkommazahlen mit 32-Bit-Mantisse (etwa neun
+Stellen) rechnet SB-6610 dezimal mit <strong>16 Stellen</strong>. Der ganze Bereich 2DEDh–37D6h ist neu
+geschrieben. Die Routinen benutzen die BCD-Befehle des Z80 (<code>DAA</code>, <code>RLD</code>, <code>RRD</code>); 26 <code>DAA</code> stehen
+in diesem Teil, bei SB-6511 eines.</p>
+<h2 id="zahlformat">Zahlformat</h2>
+<p>Eine Zahl belegt <strong>9 Bytes</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Byte</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–7</td>
+<td>Mantisse M: 16 BCD-Ziffern, die höchstwertigen zuerst</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Exponentbyte: Bit 7 = Vorzeichen (1 = negativ), Bits 6–0 = E</td>
+</tr>
+</tbody>
+</table>
+<p>Der Wert ist <strong>M × 10^(E−40h)</strong>, wobei M als 16-stellige ganze Zahl gelesen wird. Gleichwertig: M
+als Dezimalbruch 0,M und Wert = 0,M × 10^(E−30h).</p>
+<p>Es gibt zwei Formen derselben Zahl:</p>
+<ul>
+<li><strong>Ganzzahlform:</strong> E = 40h, die Mantisse ist rechtsbündig. Ganze Zahlen bis 16 Stellen stehen so
+  und sind exakt. 1 = <code>00 00 00 00 00 00 00 01 40</code>.</li>
+<li><strong>Normierte Form:</strong> die erste Ziffer ist nicht 0. 0,5 = <code>50 00 00 00 00 00 00 00 30</code>.</li>
+</ul>
+<p>Null sind neun Null-Bytes. Nach jeder Rechnung bringt <code>FP_INTFORM</code> (2F4Ch) ein
+ganzzahliges Ergebnis zurück in die Ganzzahlform; vor dem Rechnen normiert <code>FP_NORM</code>
+(2E42h) bei Bedarf.</p>
+<p>Beispiele, mit <code>STR2NUM</code> im Emulator erzeugt:</p>
+<table>
+<thead>
+<tr>
+<th>Eingabe</th>
+<th>Mantisse</th>
+<th>E</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code></td>
+<td><code>0000000000000001</code></td>
+<td>40</td>
+</tr>
+<tr>
+<td><code>10</code></td>
+<td><code>0000000000000010</code></td>
+<td>40</td>
+</tr>
+<tr>
+<td><code>0.5</code></td>
+<td><code>5000000000000000</code></td>
+<td>30</td>
+</tr>
+<tr>
+<td><code>12.75</code></td>
+<td><code>1275000000000000</code></td>
+<td>32</td>
+</tr>
+<tr>
+<td><code>3.14159265358979323</code></td>
+<td><code>3141592653589793</code></td>
+<td>31</td>
+</tr>
+<tr>
+<td><code>123456789012345678</code></td>
+<td><code>1234567890123457</code></td>
+<td>42</td>
+</tr>
+<tr>
+<td><code>1E-10</code></td>
+<td><code>1000000000000000</code></td>
+<td>27</td>
+</tr>
+<tr>
+<td><code>2.5E63</code></td>
+<td><code>2500000000000000</code></td>
+<td>70</td>
+</tr>
+</tbody>
+</table>
+<p>Bereich laut Handbuch: 1E-48 bis 9.999999999999999E+78. Im Emulator: <code>1E-49</code> wird zu 0, <code>1E79</code>
+gibt Fehler 2. Der größte Betrag steht als Konstante <code>FP_MAX</code> (<code>99…99 7F</code>) im Abbild.</p>
+<h3 id="konstanten-und-arbeitsbereich">Konstanten und Arbeitsbereich</h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th style="text-align: right;">Adresse</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NUMBUF</code>, <code>FP_TMP1</code></td>
+<td style="text-align: right;">2DF5h</td>
+<td>normierte Kopie eines Operanden; Ausgabetext von NUM2STR</td>
+</tr>
+<tr>
+<td><code>FP_TMP2</code></td>
+<td style="text-align: right;">2DFEh</td>
+<td>normierte Kopie des anderen Operanden</td>
+</tr>
+<tr>
+<td><code>FP_DIG</code></td>
+<td style="text-align: right;">2E07h</td>
+<td>Ziffernpuffer: Produkt (gepackt), Quotient/Wurzel (eine Ziffer je Byte)</td>
+</tr>
+<tr>
+<td><code>FPR_EXP</code>, <code>FPR_PTR</code></td>
+<td style="text-align: right;">2E19h</td>
+<td>Exponent und Zeiger des Ergebnisses bei MUL/DIV/SQR</td>
+</tr>
+<tr>
+<td><code>FP_ONE</code></td>
+<td style="text-align: right;">2E1Ch</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>FP_ZERO</code>, <code>FP_MONE</code></td>
+<td style="text-align: right;">2E25h, 2E27h</td>
+<td>0 und −1 (überlappen sich)</td>
+</tr>
+<tr>
+<td><code>FP_PI</code></td>
+<td style="text-align: right;">2E30h</td>
+<td>3.141592653589793</td>
+</tr>
+<tr>
+<td><code>FP_MAX</code></td>
+<td style="text-align: right;">2E39h</td>
+<td>größter Betrag</td>
+</tr>
+<tr>
+<td><code>FP_ONE_N</code></td>
+<td style="text-align: right;">358Ah</td>
+<td>1 in normierter Form (für INT)</td>
+</tr>
+<tr>
+<td><code>SQR_SQUARES</code></td>
+<td style="text-align: right;">3410h</td>
+<td>Quadrate 0–9 in BCD</td>
+</tr>
+<tr>
+<td><code>RND_X</code>, <code>RND_MUL</code>, <code>RND_INIT</code></td>
+<td style="text-align: right;">3508h</td>
+<td>Zufallszahl, Faktor 23, Startwert</td>
+</tr>
+</tbody>
+</table>
+<h2 id="grundbausteine">Grundbausteine</h2>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FP_NORM</code></td>
+<td style="text-align: right;">2E42h</td>
+<td>führende Null-Bytes und eine führende Null-Ziffer herausschieben, Exponent anpassen; Unterlauf → 0</td>
+</tr>
+<tr>
+<td><code>FP_NORMCOPY</code></td>
+<td style="text-align: right;">2EB1h</td>
+<td>beide Operanden normiert nach <code>FP_TMP1</code>/<code>FP_TMP2</code> kopieren</td>
+</tr>
+<tr>
+<td><code>FP_SHR1</code></td>
+<td style="text-align: right;">2ED1h</td>
+<td>Mantisse eine Ziffer nach rechts, E + 1, CY = Rundung</td>
+</tr>
+<tr>
+<td><code>FP_SHRN</code></td>
+<td style="text-align: right;">2F03h</td>
+<td>Mantisse A Ziffern nach rechts (ganze Bytes über <code>FSRN_BYTES</code>)</td>
+</tr>
+<tr>
+<td><code>FP_INTFORM</code></td>
+<td style="text-align: right;">2F4Ch</td>
+<td>ganzzahligen Wert auf E = 40h bringen</td>
+</tr>
+<tr>
+<td><code>MANT_ADD</code>, <code>MANT_SUB</code></td>
+<td style="text-align: right;">2F76h, 2FA6h</td>
+<td>8 Bytes BCD addieren bzw. subtrahieren</td>
+</tr>
+<tr>
+<td><code>MANT_CARRY</code></td>
+<td style="text-align: right;">2F8Ch</td>
+<td>Übertrag aus der höchsten Stelle: eine Ziffer nach rechts, 1 einsetzen</td>
+</tr>
+<tr>
+<td><code>FP_ISZERO</code></td>
+<td style="text-align: right;">329Dh</td>
+<td>Test auf 0</td>
+</tr>
+<tr>
+<td><code>FP_SETZERO</code></td>
+<td style="text-align: right;">2FD2h</td>
+<td>Zahl löschen</td>
+</tr>
+<tr>
+<td><code>FP_OVERFLOW</code></td>
+<td style="text-align: right;">2FC1h</td>
+<td><code>FP_MAX</code> mit Vorzeichen eintragen, Fehler 2</td>
+</tr>
+</tbody>
+</table>
+<p>Fast alle Routinen bekommen Zeiger auf das <strong>Exponentbyte</strong> (Byte 8); die Mantisse liegt in den
+acht Bytes darunter. Die Grundrechenarten rechnen <code>(DE) = (DE) op (HL)</code>.</p>
+<h2 id="addition-und-subtraktion">Addition und Subtraktion</h2>
+<p><code>OP_ADD</code> (3034h) und <code>OP_SUB</code> (306Fh) entscheiden nach den Vorzeichen, ob die Beträge
+addiert (<code>ADD_MAG</code>) oder subtrahiert (<code>SUB_MAG</code>) werden:</p>
+<ol>
+<li>Sind beide Operanden in Ganzzahlform, wird direkt addiert – ohne Angleichen und ohne Rundung.</li>
+<li>Sonst wird der Operand mit dem kleineren Exponenten um die Differenz nach rechts geschoben
+   (<code>ADD_ALIGN</code>, <code>FP_SHRN</code>) und dabei gerundet. Ab 16 Stellen Unterschied bestimmt der größere
+   Operand allein das Ergebnis.</li>
+<li><code>MANT_ADD</code> bzw. <code>MANT_SUB</code>; ein negatives Ergebnis der Subtraktion wird ins Zehnerkomplement
+   umgerechnet und das Vorzeichen gedreht.</li>
+<li>Normieren und <code>FP_INTFORM</code>.</li>
+</ol>
+<p>Beim Tausch der Operanden setzt <code>ADD_MAG</code>/<code>SUB_MAG</code> den Befehl <code>ASW_SIGN</code> in <code>ADD_SWAP</code> auf <code>NOP</code>
+oder <code>CPL</code>, damit das Vorzeichen stimmt.</p>
+<h2 id="multiplikation-und-division">Multiplikation und Division</h2>
+<p><code>OP_MUL</code> (30DBh) und <code>OP_DIV</code> (30DEh) teilen sich <code>MULDIV</code> (30DFh): Null-Operanden
+abfangen (Division durch 0: Fehler 2), beide Operanden normiert kopieren, Exponent und Vorzeichen
+des Ergebnisses nach <code>FPR_EXP</code> (Bereich prüfen).</p>
+<ul>
+<li><strong>Multiplikation</strong> (<code>MUL_START</code>): Jedes Byte des linken mal jedes Byte des rechten Operanden.
+  Ein Teilprodukt entsteht durch wiederholtes Addieren mit <code>DAA</code> (untere Ziffer, dann obere Ziffer
+  nach <code>ADD HL,HL</code> × 4) und wird an der richtigen Stelle in das 32-stellige Produkt in <code>FP_DIG</code>
+  aufaddiert. Die oberen 16 Ziffern werden das Ergebnis, das nächste Byte entscheidet die Rundung.</li>
+<li><strong>Division</strong>: wie schriftlich – für jede der 17 Ziffern den Divisor abziehen, bis der Rest
+  negativ wird, einmal zurückaddieren, die Ziffer nach <code>FP_DIG</code>, nächste Stelle des Dividenden
+  einschieben. <code>MD_PACK</code> packt die Ziffern zur Mantisse, <code>MD_FINISH</code> rundet.</li>
+</ul>
+<p>Weil der Quotient mit einer führenden Null beginnen kann, hat er manchmal nur 15 gültige Ziffern:
+<code>1/3</code> ergibt 0.333333333333333 (15 Dreien), <code>2/3</code> ergibt 0.666666666666667.</p>
+<h2 id="quadratwurzel">Quadratwurzel</h2>
+<p><code>FN_SQR</code> (32C3h) zieht die Wurzel Ziffer für Ziffer wie beim schriftlichen Wurzelziehen:
+negatives Argument Fehler 3, Exponent halbieren (bei ungeradem Exponent die Mantisse vorher eine
+Stelle verschieben), erste Ziffer über die Summe der ungeraden Zahlen, jede weitere durch
+fortgesetztes Abziehen; <code>SQR_SQUARES</code> liefert die Quadrate der Ziffern. <code>SQR(16)</code> = 4 exakt,
+<code>SQR(2)</code> = 1.414213562373096 (richtig gerundet wäre …095).</p>
+<h2 id="vergleich-abs-sgn">Vergleich, ABS, SGN</h2>
+<p><code>FP_CMP</code> (3464h) vergleicht <code>(DE)</code> mit <code>(HL)</code>: Z bei Gleichheit, CY wenn <code>(DE)</code> größer ist.
+Zwei Zahlen in Ganzzahlform werden direkt verglichen, sonst normierte Kopien (erst Vorzeichen und
+Exponent, dann die Mantisse). Die Vergleichsoperatoren legen −1 (wahr) oder 0 (falsch) ab
+(<code>SET_TRUE</code>/<code>SET_FALSE</code>). <code>ABS</code> löscht das Vorzeichenbit, <code>SGN</code> liefert −1, 0 oder 1.</p>
+<h2 id="int">INT</h2>
+<p><code>FN_INT</code> (354Fh) schneidet die Nachkommastellen ab; bei negativen Zahlen mit Rest wird 1
+abgezogen (<code>OP_SUB</code> mit <code>FP_ONE_N</code>). <code>INT_FINISH</code> (3B1Bh) bringt das Ergebnis in
+Ganzzahlform und macht aus −0 eine echte 0 – diese Korrektur fehlt in der älteren Fassung auf
+DISK26. Beispiele: <code>INT(3.7)</code> = 3, <code>INT(-3.7)</code> = −4, <code>INT(-5)</code> = −5, <code>INT(0.2)</code> = 0.</p>
+<h2 id="rnd">RND</h2>
+<p><code>FN_RND</code> (3498h) arbeitet mit dem Startwert <code>RND_X</code> (0.2029882764533591):</p>
+<ul>
+<li><code>RND(0)</code> setzt <code>RND_X</code> auf <code>RND_INIT</code> zurück,</li>
+<li>jeder Aufruf rechnet <code>RND_X = RND_X × 23</code> und behält nur die Nachkommastellen,</li>
+<li>bei negativem Argument kommt vorher ein Anteil aus der Uhr dazu (<code>TIMER_GET</code>, über <code>BYTE2BCD</code>).</li>
+</ul>
+<p>Das Ergebnis ist normiert und liegt zwischen 0 und 1. <code>RND(0)</code> liefert nach dem Zurücksetzen
+gleich den ersten Wert der Folge: <code>RND(1);RND(1);RND(0);RND(1)</code> ergibt im Emulator
+0.668730358427259, 0.38079824382696, 0.668730358427259, 0.38079824382696.</p>
+<h2 id="umwandlung-zwischen-text-und-zahl">Umwandlung zwischen Text und Zahl</h2>
+<p><code>STR2NUM</code> (3593h) liest Ziffern, Punkt und <code>E[+|-]nn</code>. Ziffern werden von rechts in die
+Mantisse geschoben (<code>S2N_PUTDIG</code>); ab der 17. Ziffer wird nur noch gerundet bzw. der Exponent
+erhöht. Ohne Ziffer: Fehler 1, zu groß: Fehler 2, zu klein: 0.</p>
+<p><code>NUM2STR</code> (36B9h) schreibt nach <code>NUMBUF</code>: Vorzeichen (Leerzeichen oder <code>-</code>), dann die
+Ziffern ohne führende und abschließende Nullen. Es gibt drei Formen:</p>
+<table>
+<thead>
+<tr>
+<th>Form</th>
+<th>wann</th>
+<th>Beispiel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ganz</td>
+<td>ganze Zahl mit bis zu 16 Stellen</td>
+<td><code>1234567890123456</code>, <code>1500000000000000</code></td>
+</tr>
+<tr>
+<td>Dezimalbruch</td>
+<td>sonst, solange die Ziffern in 16 Stellen passen</td>
+<td><code>0.000123</code>, <code>0.000000000000001</code>, <code>0.0000000000000015</code></td>
+</tr>
+<tr>
+<td>Exponent</td>
+<td>mehr als 16 Stellen vor dem Komma oder sehr klein (ab etwa 1E-16)</td>
+<td><code>1E+16</code>, <code>1.234567890123457E+17</code>, <code>1E-16</code>, <code>2.5E+63</code></td>
+</tr>
+</tbody>
+</table>
+<p>Am Ende ruft <code>NUM2STR</code> die Routine <code>NUM_OUT</code> auf, die den Text normal kopiert oder – bei
+<code>PRINT USING</code> – nach der Schablone aufbereitet (<a href="printusing.html">PRINT USING</a>).</p>
+<h2 id="ganze-zahlen-fuer-befehle">Ganze Zahlen für Befehle</h2>
+<p><code>VAL2UINT</code> (1BC9h) wandelt einen Wert in eine Zahl 0–65535 für Befehle wie <code>POKE</code>, <code>GOTO</code>
+oder Feldindizes: Kopie nach <code>FP_TMP1</code>, <code>FN_INT</code>, die oberen zehn Ziffern müssen 0 sein (sonst
+Fehler 3), dann Ziffern 1–2 × 10000 + Ziffern 3–4 × 100 + Ziffern 5–6. Umgekehrt legt <code>BYTE2VAL</code>
+(2A68h) einen Wert 0–255 in Ganzzahlform auf den Wertestack (über <code>BYTE2BCD</code>).</p>
+<h2 id="genauigkeit-und-eigenheiten">Genauigkeit und Eigenheiten</h2>
+<p>Im Emulator mit dem Originalcode gerechnet:</p>
+<table>
+<thead>
+<tr>
+<th>Ausdruck</th>
+<th>Ergebnis</th>
+<th>Bemerkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0.1+0.2</code></td>
+<td>0.3</td>
+<td>exakt, weil dezimal</td>
+</tr>
+<tr>
+<td><code>1/3</code></td>
+<td>0.333333333333333</td>
+<td>15 Stellen (führende Null im Quotienten)</td>
+</tr>
+<tr>
+<td><code>1/3*3</code></td>
+<td>0.999999999999999</td>
+<td></td>
+</tr>
+<tr>
+<td><code>123456789*987654321</code></td>
+<td>1.219326311126353E+17</td>
+<td>auf 16 Stellen gerundet</td>
+</tr>
+<tr>
+<td><code>9999999999999999+1</code></td>
+<td>1E+16</td>
+<td></td>
+</tr>
+<tr>
+<td><code>1E16-1</code></td>
+<td>1E+16</td>
+<td>beim Angleichen geht die 1 verloren</td>
+</tr>
+<tr>
+<td><code>99999999*99999999</code></td>
+<td>9999999800000001</td>
+<td>exakt (16 Stellen)</td>
+</tr>
+<tr>
+<td><code>SQR(2)</code></td>
+<td>1.414213562373096</td>
+<td>letzte Stelle um 1 zu hoch</td>
+</tr>
+</tbody>
+</table>
+<h2 id="fehlende-funktionen">Fehlende Funktionen</h2>
+<p><code>^</code>, <code>SIN</code>, <code>COS</code>, <code>TAN</code>, <code>ATN</code>, <code>EXP</code>, <code>LOG</code> und <code>LN</code> gibt es nicht; ihre Einträge in
+<code>FUNC_TAB</code> zeigen auf <code>ERR_01</code>. Das Handbuch (2.4.4) empfiehlt dafür die BASIC-Unterprogramme in
+der Datei „FUNCTION“ der Systemdiskette (<code>programme/disk26/FUNCTION.bas</code>) oder SB-6510.</p>
+<footer><div class="pn"><a class="prev" href="interpreter.html">← Interpreterschleife und Ablauf</a><a class="next" href="printusing.html">PRINT USING →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

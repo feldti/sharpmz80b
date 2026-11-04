@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interpreterschleife und Ablauf – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li class="cur"><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#uberblick">Überblick</a></li><li><a href="#programmiertechniken-im-code">Programmiertechniken im Code</a></li><li><a href="#stacks-des-interpreters">Stacks des Interpreters</a></li><li><a href="#kontrollanweisungen">Kontrollanweisungen</a></li><li><a href="#programme-verketten-chain-und-swap">Programme verketten: CHAIN und SWAP</a></li><li><a href="#weitere-systembefehle">Weitere Systembefehle</a></li></ul></aside>
+<h1 id="interpreterschleife-und-programmablauf">Interpreterschleife und Programmablauf</h1>
+<h2 id="uberblick">Überblick</h2>
+<p>Die Ausführung kreist um wenige Routinen bei 1CFDh–1D9Ch:</p>
+<pre><code>             ┌──────────────────────────────────────────────────────┐
+             ▼                                                      │
+ NEXTSTMT  (HL = TXTPTR)                                            │
+     │  &quot;:&quot;  ──────────────► EXECSTMT                               │
+     │  0Dh  ─► NEXTLINE: Link 0? ─► END_PRG / BAS_READY            │
+     │              │                                               │
+     │          NL_SRQ (ON SRQ?) ─► NL_NEXT: CURLINE := Link+Nr.    │
+     │              ▼                                               │
+     │          EXECSTMT: TXTPTR := HL                              │
+     │              ▼                                               │
+     │          EXECSTMT2: ERRCTX_SAVE (ON ERROR), BREAK prüfen     │
+     │              ▼                                               │
+     │          DISPATCH: Wertestack leeren, Token lesen            │
+     │              │  &lt; 80h  ─► ST_LET                             │
+     │              │  80h,n  ─► STMT_TAB[n]  (JPTAB)               │
+     │              ▼                                               │
+     │          ST_xxx: Parameter lesen, ausführen ─► JP NEXTSTMT ──┘
+</code></pre>
+<h3 id="nextstmt-1cfdh-und-nextstmt_hl">NEXTSTMT (1CFDh) und NEXTSTMT_HL</h3>
+<p><code>NEXTSTMT</code> holt den Textzeiger aus <code>TXTPTR</code>, <code>NEXTSTMT_HL</code> nimmt ihn aus HL. Nach Leerzeichen
+muss entweder <code>:</code> folgen (dann geht es in derselben Zeile weiter) oder 0Dh (Zeilenende).
+Alles andere ergibt Fehler 1 – so wird überzähliger Text hinter einer Anweisung erkannt.</p>
+<h3 id="nextline-und-nl_srq">NEXTLINE und NL_SRQ</h3>
+<p>Am Zeilenende liest <code>NEXTLINE</code> den Link der aktuellen Zeile aus <code>CURLINE</code>. Im Direktmodus
+(<code>CURLINE</code> = 0) geht es zurück nach <code>BAS_READY</code>. Sonst:</p>
+<ul>
+<li><strong>ON SRQ:</strong> Ist <code>SRQ_ON</code> gesetzt und die SRQ-Leitung der GP-IB-Karte aktiv (Port C0h,
+  Bit 2), wird <code>SRQ_ON</code> gelöscht und die Ausführung bei der Zeile in <code>SRQ_LINE</code> fortgesetzt –
+  ein einmaliger, zeilengenauer „Interrupt“.</li>
+<li>Link 0 bedeutet Programmende → <code>END_PRG</code>.</li>
+<li>Sonst werden Link und Zeilennummer der neuen Zeile nach <code>CURLINE</code>/<code>CURLNUM</code> kopiert.</li>
+</ul>
+<h3 id="execstmt2-vor-jeder-anweisung">EXECSTMT2 – vor jeder Anweisung</h3>
+<ol>
+<li>Ist <code>ON ERROR</code> aktiv (<code>ONERR_FLAG</code> = 1), sichert <code>ERRCTX_SAVE</code> die aktuelle Zeile und den
+   Textzeiger nach <code>ERRCTX_*</code>. Daraus liefert <code>ERL</code> die Fehlerzeile, und <code>RESUME</code> setzt dort
+   wieder auf.</li>
+<li>BREAK-Abfrage (<code>BRKCHK</code> und eine zweite Tastaturzeile über die PIO). Wird abgebrochen,
+   merkt sich <code>CONT_POS</code> die Stelle mit Kennung 2 („Anweisung wiederholen“), dann <code>BREAK</code>.</li>
+</ol>
+<h3 id="dispatch-1d5eh-und-jptab">DISPATCH (1D5Eh) und JPTAB</h3>
+<p><code>DISPATCH</code> setzt den Wertestack zurück (<code>VALSP</code> := Anfang von <code>P_STRTMP</code>; damit verfallen auch
+alle String-Zwischenwerte der vorigen Anweisung) und liest das Zeichen am Textzeiger:</p>
+<ul>
+<li>Byte &lt; 80h: keine Anweisung – implizites <code>LET</code> (<code>ST_LET</code>).</li>
+<li><code>80h, 80h+n</code>: Index n in <code>STMT_TAB</code> (100 Einträge × 2 Bytes ab 1D9Dh). Jedes andere erste
+  Byte (81h, 82h, Funktionstoken) ergibt Fehler 1.</li>
+</ul>
+<p><code>JPTAB</code> holt die Adresse aus der Tabelle, legt sie mit <code>EX (SP),HL</code> auf den Stack und springt
+mit <code>RET</code> hinein. HL zeigt dabei auf das erste Zeichen hinter dem Token. Dieselbe Routine
+verteilt auch über <code>FUNC_TAB</code>.</p>
+<p>Freie Plätze in <code>STMT_TAB</code> zeigen auf <code>ERR_01</code>. Auch <code>THEN</code> (Anweisung Nr. 12) und die
+Funktion <code>EOF(</code> (in <code>FUNC_TAB</code>) sind mit <code>ERR_01</code> belegt: sie werden nur innerhalb von <code>IF</code>
+ausgewertet.</p>
+<h3 id="wie-eine-anweisungsroutine-aussieht">Wie eine Anweisungsroutine aussieht</h3>
+<p>Eine Routine <code>ST_xxx</code> bekommt HL = Textzeiger, liest ihre Parameter mit den Hilfsroutinen und
+endet mit <code>JP NEXTSTMT</code> (nach <code>CHK_EOS</code>, das <code>TXTPTR</code> setzt) oder <code>JP NEXTSTMT_HL</code>. Sie kehrt
+nicht mit <code>RET</code> zurück. Ein typisches Beispiel ist <code>POKE</code>:</p>
+<pre><code class="language-asm">ST_POKE:                        ; POKE adresse, wert
+        CALL    EVAL_ADDR       ; DE = Adresse ($hex oder Ausdruck)
+        CALL    SKIPCOMMA       ; Komma überlesen
+        PUSH    DE              ; Adresse merken
+        CALL    EVAL_ADDR       ; DE = Wert
+        LD      A,D
+        OR      A
+        JP      NZ,ERR_03       ; Wert &gt; 255: Fehler 3
+        EX      (SP),HL         ; HL = Adresse, Textzeiger auf den Stack
+        LD      (HL),E          ; Byte schreiben
+        POP     HL              ; Textzeiger zurück
+        JP      NEXTSTMT_HL     ; &quot;:&quot; oder Zeilenende muss folgen
+</code></pre>
+<p>Die Seite <a href="erweitern.html">Einen Befehl einbauen</a> erklärt das ausführlich.</p>
+<h2 id="programmiertechniken-im-code">Programmiertechniken im Code</h2>
+<p>Drei Muster tauchen überall auf und erklären viele scheinbar „falsche“ Stellen im Listing.</p>
+<h3 id="inline-parameter">Inline-Parameter</h3>
+<p>Viele Hilfsroutinen lesen Daten, die im Code direkt hinter dem <code>CALL</code> stehen, und kehren
+hinter diese Daten zurück:</p>
+<table>
+<thead>
+<tr>
+<th>Aufruf</th>
+<th>Bedeutung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CALL SYNCHK</code> / <code>DEFB z</code></td>
+<td>Zeichen z muss folgen, sonst Fehler 1</td>
+</tr>
+<tr>
+<td><code>CALL CHK_CHR_ALT</code> / <code>DEFB z</code> / <code>DEFW ziel</code></td>
+<td>folgt z, weiter dahinter; sonst Sprung nach <em>ziel</em></td>
+</tr>
+<tr>
+<td><code>CALL MUL16</code> / <code>DEFW fehler</code></td>
+<td>16-Bit-Multiplikation, bei Überlauf Sprung nach <em>fehler</em></td>
+</tr>
+<tr>
+<td><code>CALL FINDLINE</code> / <code>DEFW ende</code></td>
+<td>Zeile suchen, Programmende → <em>ende</em></td>
+</tr>
+<tr>
+<td><code>CALL DIR_SCAN</code> / <code>DEFW handler</code></td>
+<td><em>handler</em> für jeden Verzeichniseintrag aufrufen</td>
+</tr>
+<tr>
+<td><code>CALL FTAB_SCAN</code> / <code>DEFW handler</code></td>
+<td><em>handler</em> für jeden Eintrag der Dateitabelle</td>
+</tr>
+</tbody>
+</table>
+<p>Die Helfer <code>JP_INLINE</code> (zur Inline-Adresse springen) und <code>RET_SKIP2</code> (dahinter zurückkehren)
+setzen das um. Im Listing heißen solche Daten <code>Dxxxx</code>.</p>
+<h3 id="die-kette-der-fehlereinsprunge">Die Kette der Fehlereinsprünge</h3>
+<pre><code class="language-asm">ERR_01: LD      A,01h
+        DEFB    01h             ; = LD BC,nn: verschluckt das nächste LD A,n
+ERR_02: LD      A,02h
+        DEFB    01h
+ERR_03: ...
+</code></pre>
+<p>Ein Sprung nach <code>ERR_nn</code> lädt die Nummer; das Byte 01h bildet mit dem folgenden <code>LD A,n</code> einen
+<code>LD BC,nn</code>-Befehl, der nichts bewirkt. So „rutscht“ jeder Einsprung ohne weiteren Sprung bis
+zum Ende der Kette und weiter nach <code>ERROR</code>. 70 Einsprünge kosten so nur 3 Bytes pro Fehler.</p>
+<h3 id="selbstmodifizierender-code">Selbstmodifizierender Code</h3>
+<p>Viele Routinen ändern Operanden anderer Befehle zur Laufzeit (<code>LD (Lxxxx+1),A</code>), etwa:</p>
+<ul>
+<li><code>INP@</code>/<code>OUT@</code> schreiben die Portnummer in einen <code>IN</code>/<code>OUT</code>-Befehl.</li>
+<li><code>LIST_DEV</code> wird für <code>LIST/P</code> auf 1 gesetzt.</li>
+<li><code>FINDLINE2</code> sucht mit der zuletzt in <code>FL_TARGET</code> eingesetzten Zeilennummer weiter.</li>
+<li><code>END_SWAP</code> merkt sich, dass ein per SWAP geladenes Programm läuft.</li>
+<li>Die Grafik setzt Bitbefehle (<code>SET/RES/BIT n,(HL)</code>) und <code>INC</code>/<code>DEC</code> für Bresenham ein.</li>
+<li>Die RS-232C-Erweiterung trägt Portnummern ein, damit derselbe Code für beide Kanäle dient.</li>
+</ul>
+<h2 id="stacks-des-interpreters">Stacks des Interpreters</h2>
+<p>Neben dem Z80-Stack verwaltet das BASIC drei eigene Stapel in festen Bereichen. Sie wachsen
+abwärts; <code>INITVARPTR</code> setzt sie zurück.</p>
+<table>
+<thead>
+<tr>
+<th>Stapel</th>
+<th>Zeiger</th>
+<th>Eintrag</th>
+<th>Tiefe</th>
+<th>Fehler</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GOSUB</td>
+<td><code>GOSUB_SP</code> (Start 7240h)</td>
+<td>7 Bytes: <code>CURLINE</code> (Link, Nr.), <code>TXTPTR</code>, <code>FOR_CNT</code></td>
+<td>15</td>
+<td>10</td>
+</tr>
+<tr>
+<td>FOR</td>
+<td><code>FOR_SP</code> (Start 71D7h)</td>
+<td>19 Bytes: Kopie von <code>FOR_VAR</code> … <code>TXTPTR</code></td>
+<td>15</td>
+<td>11</td>
+</tr>
+<tr>
+<td>FN</td>
+<td><code>FNPAR_SP</code> (Start 70BAh)</td>
+<td>6 Bytes: gesicherte Parametervariable</td>
+<td>5</td>
+<td>12</td>
+</tr>
+</tbody>
+</table>
+<h3 id="for-next">FOR … NEXT</h3>
+<p><code>FOR var = a TO b [STEP c]</code> (<code>ST_FOR</code>, 216Fh):</p>
+<ol>
+<li>Laufvariable suchen bzw. anlegen (<code>GETNAME_SN</code>, <code>NUMVAR</code>), Startwert zuweisen.</li>
+<li>Nach dem Token <code>TO</code> (9Eh) den Endwert, nach <code>STEP</code> (9Fh) die Schrittweite auswerten; ohne
+   <code>STEP</code> gilt 1.</li>
+<li>Der Eintrag wird in <code>FOR_VAR</code> … <code>FOR_LIMIT</code> zusammengesetzt: Adresse der Variablen (2),
+   Schrittweite (5), Vorzeichen der Schrittweite (1), Endwert (5), danach <code>CURLINE</code> (4) und
+   <code>TXTPTR</code> (2) – zusammen 19 Bytes.</li>
+<li>Gibt es schon einen Eintrag für dieselbe Variable, wird er <strong>samt allen jüngeren</strong> entfernt
+   (so verhält sich ein erneut betretenes FOR korrekt).</li>
+<li>Eintrag auf den FOR-Stack, <code>FOR_CNT</code> und <code>FOR_DEPTH</code> erhöhen.</li>
+</ol>
+<p>Die Schleife wird immer mindestens einmal durchlaufen; geprüft wird erst bei NEXT.</p>
+<p><code>NEXT [var[,var…]]</code> (<code>ST_NEXT</code>, 2204h) sucht den passenden Eintrag (ohne Variable den jüngsten;
+jüngere werden verworfen, keiner gefunden: Fehler 13), addiert die Schrittweite (<code>OP_ADD</code>) und
+vergleicht je nach Vorzeichen mit dem Endwert (<code>FP_CMP</code>). Läuft die Schleife weiter, werden
+<code>CURLINE</code> und <code>TXTPTR</code> aus dem Eintrag geholt; ist sie fertig, wird der Eintrag entfernt und
+mit der nächsten Variablen hinter <code>,</code> weitergemacht.</p>
+<h3 id="gosub-return">GOSUB … RETURN</h3>
+<p><code>GOSUB zeile</code> legt <code>CURLINE</code>, <code>TXTPTR</code> und <code>FOR_CNT</code> (7 Bytes) auf den GOSUB-Stack und setzt
+<code>FOR_CNT</code> = 0: jede GOSUB-Ebene zählt ihre FOR-Schleifen selbst. <code>RETURN</code> verwirft die
+FOR-Einträge der aktuellen Ebene und holt die drei Werte zurück (ohne GOSUB: Fehler 14). Ein
+<code>RETURN</code> mitten aus einer FOR-Schleife ist damit sauber.</p>
+<h3 id="def-fn-und-fn">DEF FN und FN</h3>
+<p><code>DEF FNx(y) = ausdruck</code> kopiert den Tokentext hinter <code>=</code> in die Liste <code>P_DEFFN</code>
+(Eintrag: x, y, Text, 0Dh); eine vorhandene Definition wird ersetzt. Funktions- und
+Parametername sind je <strong>ein</strong> Buchstabe.</p>
+<p><code>FNx(arg)</code> (<code>FN_CALL</code>) sucht die Definition (fehlt: Fehler 15), sichert den aktuellen Wert
+der Variablen y auf dem FN-Stack, weist ihr das Argument zu, wertet den gespeicherten Text mit
+<code>EVAL</code> aus und stellt y wieder her. Die Rekursionstiefe ist auf 5 begrenzt (Fehler 12).</p>
+<h2 id="kontrollanweisungen">Kontrollanweisungen</h2>
+<table>
+<thead>
+<tr>
+<th>Anweisung</th>
+<th>Routine</th>
+<th>Verhalten</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GOTO z</code></td>
+<td><code>ST_GOTO</code></td>
+<td>Zeile suchen (<code>GOTO_HL</code>, fehlt: Fehler 16), dort weiter. Auch Ziel von <code>THEN z</code>, <code>ON … GOTO</code>, <code>RESUME z</code></td>
+</tr>
+<tr>
+<td><code>GOSUB z</code> / <code>RETURN</code></td>
+<td><code>ST_GOSUB</code> / <code>ST_RETURN</code></td>
+<td>siehe oben</td>
+</tr>
+<tr>
+<td><code>IF b THEN z</code> / <code>THEN anw</code> / <code>GOTO z</code> / <code>GOSUB z</code></td>
+<td><code>ST_IF</code></td>
+<td>Bedingung = 0: Rest der <strong>Zeile</strong> überspringen (<code>IF_FALSE</code>); auch Anweisungen hinter <code>:</code> gehören zum THEN-Zweig</td>
+</tr>
+<tr>
+<td><code>IF EOF(#n) …</code></td>
+<td><code>ST_IF</code></td>
+<td>Sonderform: prüft das EOF-Byte im Dateitabellen-Eintrag (Datei nicht offen: Fehler 44)</td>
+</tr>
+<tr>
+<td><code>ON a GOTO/GOSUB z1,z2,…</code></td>
+<td><code>ST_ON</code></td>
+<td>a = 0 oder &gt; 255: weiter mit der nächsten Anweisung; gibt es weniger Ziele als a, ebenfalls</td>
+</tr>
+<tr>
+<td><code>ON ERROR GOTO z</code></td>
+<td><code>ST_ONERR</code></td>
+<td>Fehlerbehandler setzen, siehe <a href="fehler.html">Fehler</a></td>
+</tr>
+<tr>
+<td><code>ON SRQ GOTO z</code></td>
+<td><code>ST_ON</code> → <code>ST_SRQ</code></td>
+<td>GP-IB-Service-Request, geprüft in <code>NL_SRQ</code></td>
+</tr>
+<tr>
+<td><code>END</code></td>
+<td><code>ST_END</code></td>
+<td>Programm beenden, CONT möglich; nach SWAP zurück ins rufende Programm</td>
+</tr>
+<tr>
+<td><code>STOP</code></td>
+<td><code>ST_STOP</code></td>
+<td>wie END, zusätzlich Meldung <code>*STOP IN z</code></td>
+</tr>
+<tr>
+<td><code>CONT</code></td>
+<td><code>ST_CONT</code></td>
+<td>nur im Direktmodus; ohne gesicherte Stelle Fehler 17</td>
+</tr>
+<tr>
+<td><code>RUN [z]</code></td>
+<td><code>ST_RUN</code></td>
+<td>ohne Argument: Variablen löschen, von vorn. Mit Zeile: dort starten, <strong>Variablen bleiben</strong>. Mit <code>"datei"</code>: laden und starten</td>
+</tr>
+<tr>
+<td><code>NEW</code></td>
+<td><code>ST_NEW</code></td>
+<td>CONT sperren, Programm und Variablen löschen</td>
+</tr>
+</tbody>
+</table>
+<p>Die meisten Ablaufbefehle (<code>GOSUB</code>, <code>RETURN</code>, <code>IF</code>, <code>ON</code>, <code>INPUT</code>, <code>END</code>, <code>STOP</code>, <code>ON ERROR</code> …)
+sind nur im Programm erlaubt (<code>CHK_NODIRECT</code>), Editierbefehle wie <code>LIST</code>, <code>AUTO</code>, <code>CONT</code>,
+<code>SAVE</code>, <code>DIR</code>, <code>KLIST</code> nur im Direktmodus (<code>CHK_DIRECT</code>). Sonst: Fehler 19.</p>
+<h3 id="cont">CONT</h3>
+<p><code>CONT_POS</code> sichert <code>CURLINE</code> und <code>TXTPTR</code> und eine Kennung in <code>CONT_FLAG</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>CONT_FLAG</code></th>
+<th>gesetzt durch</th>
+<th>CONT macht</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>CONT_CLR</code> (Editieren, NEW, Laden)</td>
+<td>Fehler 17</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>END</code>, <code>STOP</code></td>
+<td>weiter mit der nächsten Anweisung</td>
+</tr>
+<tr>
+<td>2</td>
+<td>BREAK während des Programms</td>
+<td>die unterbrochene Anweisung wiederholen</td>
+</tr>
+<tr>
+<td>negativ (80h)</td>
+<td>BREAK während INPUT</td>
+<td>INPUT neu beginnen</td>
+</tr>
+</tbody>
+</table>
+<h3 id="read-data-restore">READ, DATA, RESTORE</h3>
+<p><code>READ</code> läuft über denselben Zuweisungscode wie <code>INPUT</code>, mit dem Pseudogerät <code>FILE_NO</code> = 81h.
+<code>READ_NEXT</code> holt das nächste Element aus <code>DATA_PTR</code>; ist die aktuelle DATA-Anweisung
+erschöpft, sucht <code>DATA_SEARCH</code> die nächste <code>DATA</code>-Anweisung im Programm (keine mehr:
+Fehler 24). DATA-Text wird beim Tokenisieren nicht verändert. <code>RESTORE [z]</code> setzt
+<code>DATA_FLAG</code> zurück bzw. beginnt die Suche ab Zeile z.</p>
+<h2 id="programme-verketten-chain-und-swap">Programme verketten: CHAIN und SWAP</h2>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RUN "datei"</code></td>
+<td>Programm laden und von vorn starten, Variablen gelöscht</td>
+</tr>
+<tr>
+<td><code>CHAIN datei</code></td>
+<td>Programm laden und starten, <strong>Variablen bleiben</strong> (<code>CHAIN_MODE</code> = 1)</td>
+</tr>
+<tr>
+<td><code>SWAP datei</code></td>
+<td>laufendes Programm samt Variablen (ab 7096h) als Auslagerungsdatei (Typ 80h/81h) auf die Diskette schreiben, das andere Programm laden und starten. Dessen <code>END</code> kehrt über <code>SWAP_BACK</code> ins rufende Programm zurück; SWAP im SWAP: Fehler 25</td>
+</tr>
+<tr>
+<td><code>APPEND datei</code></td>
+<td>Zeilen eines Programms hinzuladen; gleiche Nummern ersetzen vorhandene Zeilen</td>
+</tr>
+</tbody>
+</table>
+<p>Details zum Laden stehen unter <a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a>.</p>
+<h2 id="weitere-systembefehle">Weitere Systembefehle</h2>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LIMIT adr</code> / <code>LIMIT MAX</code></td>
+<td>Obergrenze des BASIC-Speichers setzen (<code>STKTOP</code> und SP); Platz darüber für Maschinenprogramme. Über <code>MEMTOP</code>: Fehler 3, zu nah am belegten Speicher: Fehler 18</td>
+</tr>
+<tr>
+<td><code>USR(adr[,var$])</code></td>
+<td>Maschinenprogramm aufrufen. <code>NEXTSTMT</code> liegt als Rücksprungadresse auf dem Stack, ein <code>RET</code> setzt das BASIC fort. Mit <code>var$</code> übergibt <code>GETVAR</code> Länge und Adresse des Strings in BC/DE</td>
+</tr>
+<tr>
+<td><code>POKE adr,w</code> / <code>PEEK(adr)</code></td>
+<td>Speicher; Adressen auch als <code>$hex</code></td>
+</tr>
+<tr>
+<td><code>INP@ port,var</code> / <code>OUT@ port,w</code></td>
+<td>Ports lesen/schreiben (Portnummer wird in den Befehl eingesetzt)</td>
+</tr>
+<tr>
+<td><code>MON</code></td>
+<td>in den Monitor (<code>MON_WARM</code>)</td>
+</tr>
+<tr>
+<td><code>BOOT</code></td>
+<td>gibt das Steuerwort 06h an die 8255 (Port E3h) aus; das löst über die Hardware einen Neustart mit dem IPL aus (Deutung erschlossen)</td>
+</tr>
+<tr>
+<td><code>DEF KEY(n)=text</code> / <code>KLIST</code></td>
+<td>Funktionstasten 1–10 belegen / anzeigen. <code>!</code> im Text wird als <code>:</code> gespeichert</td>
+</tr>
+<tr>
+<td><code>CHANGE</code></td>
+<td>Groß-/Kleinschreibung der Buchstabentasten umschalten (Bit 5 in den Tastaturtabellen)</td>
+</tr>
+<tr>
+<td><code>MUSIC s$,…</code> / <code>TEMPO n</code></td>
+<td>Melodie über den Monitor spielen, Tempo 1–7</td>
+</tr>
+<tr>
+<td><code>CURSOR x,y</code>, <code>GET var</code></td>
+<td>Cursor setzen, Taste ohne Warten lesen</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="tokenizer.html">← Tokenizer und Programmtext</a><a class="next" href="ausdruecke.html">Ausdrücke und Variablen →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

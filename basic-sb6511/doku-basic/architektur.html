@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aufbau und Speicher – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li class="cur"><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#vom-einschalten-bis-ready">Vom Einschalten bis „Ready“</a></li><li><a href="#speicherkarte-des-abbilds">Speicherkarte des Abbilds</a></li><li><a href="#laufzeit-ram">Laufzeit-RAM</a></li><li><a href="#die-dynamischen-bereiche">Die dynamischen Bereiche</a></li><li><a href="#monitor-routinen-die-das-basic-benutzt">Monitor-Routinen, die das BASIC benutzt</a></li></ul></aside>
+<h1 id="aufbau-und-speicher">Aufbau und Speicher</h1>
+<h2 id="vom-einschalten-bis-ready">Vom Einschalten bis „Ready“</h2>
+<p>Der MZ-80B hat kein BASIC im ROM. Nach dem Einschalten liegt nur das 2-KB-IPL-ROM bei 0000h.
+Es lädt das Abbild <code>Disk Basic6511ipl.mzf</code> (von Diskette, Kassette oder Speicherkarte) nach
+8000h und löst den <em>Normal Start</em> aus: das ROM wird ausgeblendet, das RAM erscheint ab 0000h,
+und das Abbild läuft dort. Die Laufwerksnummer, von der gebootet wurde, hinterlässt das IPL bei
+<code>IPL_DRIVE</code> (7FECh).</p>
+<p>Das Abbild beginnt mit dem Monitor <strong>SB-1510</strong> (0000h–1221h). Er initialisiert Hardware,
+Bildschirm und Tastatur und springt bei 00AEh mit <code>JP BAS_COLD</code> ins BASIC.</p>
+<h3 id="kaltstart-bas_cold-1222h">Kaltstart <code>BAS_COLD</code> (1222h)</h3>
+<ol>
+<li>Den Sprung bei 00AEh entschärfen: das Byte 01h macht aus <code>JP BAS_COLD</code> ein wirkungsloses
+   <code>LD BC,nn</code> (vermutlich, damit ein späterer Monitor-Neustart nicht erneut den Kaltstart
+   auslöst), und das Autostart-Flag <code>AUTORUN_FLAG</code> setzen.</li>
+<li>Die IPL-Laufwerksnummer (0–3) als Ziffer „1“–„4“ in den Autostart-Befehl
+   <code>AUTORUN_CMD</code> = <code>RUN FDn"AUTO RUN"</code> eintragen.</li>
+<li><strong>RAM-Test</strong> ab 6B00h: in jedes Byte FFh und 00h schreiben und zurücklesen, bis zum ersten
+   defekten Byte bzw. bis FF00h. Das Ergebnis wird <code>MEMTOP</code> und <code>STKTOP</code>; der Stack wird dorthin
+   gesetzt.</li>
+<li>
+<p>Piepton, Uhr auf 0 stellen (<code>TIMER_SET</code>), Einschaltmeldung mit Trennlinien
+   (<code>PRT_RULE</code>: 33 × Zeichen 90h):</p>
+<pre><code>BASIC interpreter  SB-6511
+Copyright 1981 by SHARP Corp.
+</code></pre>
+</li>
+<li>
+<p><code>CLEARALL</code> – leeres Programm, alle Bereichszeiger initialisieren – und den freien Speicher
+   als „nnnnn Bytes“ ausgeben.</p>
+</li>
+<li><code>IO_INIT</code> – PIO der GP-IB-Karte und (über den Einhängepunkt <code>JP SIO_INIT</code>) die Z80-SIO der
+   RS-232C-Erweiterung initialisieren.</li>
+<li>Ist <code>AUTORUN_FLAG</code> gesetzt, wird statt einer Tastatureingabe der Text <code>RUN FDn"AUTO RUN"</code>
+   in den Eingabepuffer kopiert. Gibt es auf der Bootdiskette ein Programm „AUTO RUN“, startet es
+   automatisch; sonst erscheint ein Fehler und danach „Ready“.</li>
+</ol>
+<h3 id="warmstart-bas_ready-1280h-und-hauptschleife">Warmstart <code>BAS_READY</code> (1280h) und Hauptschleife</h3>
+<p><code>BAS_READY</code> beginnt mit zehn <code>NOP</code>s – einem Patch-Platz von Sharp. Danach:</p>
+<ul>
+<li>Stack auf <code>STKTOP</code> zurücksetzen, Floppymotor aus (<code>FD_MOTOR_OFF</code>), Autostart löschen,
+  „Ready“ ausgeben.</li>
+<li><code>BAS_MAIN</code>: <code>INLINE</code> liest eine Zeile mit dem Bildschirmeditor (<code>GETLINE</code>) nach <code>INBUF</code>
+  (6B0Dh). Bei aktivem <code>AUTO</code> wird die nächste Zeilennummer vorgegeben.</li>
+<li><code>BAS_DIRECT</code>: <code>CRUNCH</code> wandelt die Zeile in Token, <code>LISTLINE</code> schreibt sie wieder als Klartext
+  zurück (damit steht die normalisierte Form auf dem Bildschirm).</li>
+<li><strong>Ohne Zeilennummer</strong> wird der Tokentext ab <code>TOKTEXT</code> sofort ausgeführt (<code>EXECSTMT2</code>).</li>
+<li><strong>Mit Zeilennummer</strong> fügt <code>EDITLINE</code> die Zeile ins Programm ein bzw. ersetzt oder löscht sie.</li>
+<li>Zurück nach <code>BAS_MAIN</code>. Ein Fehler oder <code>END</code> im Direktmodus führt wieder über
+  <code>BAS_READY</code>.</li>
+</ul>
+<pre><code> IPL-ROM ──► Monitor SB-1510 ──► BAS_COLD ──► BAS_READY ◄─────────────┐
+                                                 │                    │
+                                                 ▼                    │
+                                  BAS_MAIN: INLINE (Zeile lesen)      │
+                                                 │                    │
+                                       CRUNCH + LISTLINE              │
+                                       ┌─────────┴─────────┐          │
+                                 Zeilennummer?        keine Nummer    │
+                                       │                   │          │
+                                   EDITLINE        EXECSTMT2 ─► NEXTSTMT ─► … Fehler/END
+                                       └──────► BAS_MAIN
+</code></pre>
+<h2 id="speicherkarte-des-abbilds">Speicherkarte des Abbilds</h2>
+<p>Das Abbild ist 7E00h Bytes lang und wird ab 0000h ausgeführt.</p>
+<table>
+<thead>
+<tr>
+<th>Bereich</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0000h–003Ah</td>
+<td>RST-Vektoren, dazwischen Monitor-Variablen (Uhr, MUSIC-Tempo …)</td>
+</tr>
+<tr>
+<td>003Bh–06A3h</td>
+<td>Monitor SB-1510: Init, Kommandoschleife (<code>*J *M *D *L *S *V</code>), Kassette, Hex-Ein-/Ausgabe</td>
+</tr>
+<tr>
+<td>06A4h–0D47h</td>
+<td>Bildschirmeditor, Zeichenausgabe, Tastatur, Steuerzeichen, 40/80-Zeichen-Umschaltung</td>
+</tr>
+<tr>
+<td>0D48h–0DF7h</td>
+<td>Tastaturtabellen</td>
+</tr>
+<tr>
+<td>0DF8h–1038h</td>
+<td>Uhr (8253), Piepton, MUSIC-Interpreter mit Notentabellen</td>
+</tr>
+<tr>
+<td>103Fh–1221h</td>
+<td>Arbeitsspeicher des Monitors (Puffer, Kassettenkopf, Funktionstasten <code>FKEY_TAB</code> …)</td>
+</tr>
+<tr>
+<td><strong>1222h–13FFh</strong></td>
+<td><strong>BASIC: Kaltstart, Hauptschleife, Meldungstexte</strong></td>
+</tr>
+<tr>
+<td>1407h–14D9h</td>
+<td>Fehlereinsprünge <code>ERR_01</code>–<code>ERR_70</code></td>
+</tr>
+<tr>
+<td>14DAh–1691h</td>
+<td>Fehlerbehandlung, Tokenizer (<code>CRUNCH</code>), Zeilenausgabe (<code>LISTLINE</code>)</td>
+</tr>
+<tr>
+<td>1692h–1901h</td>
+<td>Schlüsselworttabellen</td>
+</tr>
+<tr>
+<td>1902h–1CFCh</td>
+<td>Hilfsroutinen: Textzeiger, Syntaxprüfung, Zeilen- und Speicherverwaltung</td>
+</tr>
+<tr>
+<td>1CFDh–1E64h</td>
+<td>Interpreterschleife und Sprungtabelle <code>STMT_TAB</code></td>
+</tr>
+<tr>
+<td>1E65h–2E42h</td>
+<td>Anweisungen, Ausdrucksauswertung, Stringfunktionen, <code>FUNC_TAB</code></td>
+</tr>
+<tr>
+<td>2E43h–3C35h</td>
+<td>Gleitkomma-Arithmetik und mathematische Funktionen</td>
+</tr>
+<tr>
+<td>3C36h–4177h</td>
+<td>PRINT / INPUT mit Geräteverteilung</td>
+</tr>
+<tr>
+<td>4178h–5C07h</td>
+<td>Dateibefehle (Kassette/Diskette), Drucker, Grafik, CONSOLE</td>
+</tr>
+<tr>
+<td>5C08h–5EEEh</td>
+<td>Floppy-Treiber (MB8876)</td>
+</tr>
+<tr>
+<td>5EEFh–6560h</td>
+<td>GP-IB-Erweiterung (IEEE-488), Ports C0h–C5h</td>
+</tr>
+<tr>
+<td>6561h–65FFh</td>
+<td>unbenutzt: Kopie von 560Bh–56A9h (<code>OLD_COPY</code>, Rest eines älteren Standes)</td>
+</tr>
+<tr>
+<td>6600h–68ABh</td>
+<td>RS-232C-Erweiterung (Z80-SIO, Ports B0h–B3h)</td>
+</tr>
+<tr>
+<td>68ACh–6FFFh</td>
+<td>FFh-Füllung</td>
+</tr>
+<tr>
+<td>7000h–7DFFh</td>
+<td>BFh-Füllung (im Betrieb Variablenbereich des BASIC)</td>
+</tr>
+</tbody>
+</table>
+<p>Der Monitor (bis 1221h) benutzt feste Adressen. Ab <code>BAS_COLD</code> ist die Quelle verschiebbar:
+alle Adressen stehen als Label, Code darf wachsen. Er muss aber vor 6900h enden, denn dort
+beginnen zur Laufzeit die RS-232C-Ringpuffer.</p>
+<h2 id="laufzeit-ram">Laufzeit-RAM</h2>
+<p>Zur Laufzeit liegen hinter dem Code feste Arbeitsbereiche und ab 725Ch das Programm mit den
+dynamischen Bereichen.</p>
+<table>
+<thead>
+<tr>
+<th>Adresse</th>
+<th>Name</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>6900h–69FFh</td>
+<td>–</td>
+<td>Ringpuffer RS-232C Kanal A</td>
+</tr>
+<tr>
+<td>6A00h–6AFFh</td>
+<td>–</td>
+<td>Ringpuffer RS-232C Kanal B</td>
+</tr>
+<tr>
+<td>6B00h–6B07h</td>
+<td>–</td>
+<td>Parameterblock für <code>ASSIGN</code> (Wert, Variable; <code>SAVEPAR0/1</code>)</td>
+</tr>
+<tr>
+<td>6B08h</td>
+<td><code>MEMTOP</code></td>
+<td>oberes RAM-Ende (vom RAM-Test)</td>
+</tr>
+<tr>
+<td>6B0Ah</td>
+<td><code>STKTOP</code></td>
+<td>Anfangswert des Stackpointers (durch <code>LIMIT</code> änderbar)</td>
+</tr>
+<tr>
+<td>6B0Dh</td>
+<td><code>INBUF</code></td>
+<td>Eingabe-/Zeilenpuffer, auch Ausgabepuffer für <code>LISTLINE</code> und PRINT</td>
+</tr>
+<tr>
+<td>6C0Eh</td>
+<td><code>TOKLINE</code></td>
+<td>Ergebnis von CRUNCH als Programmzeile: Link (2) …</td>
+</tr>
+<tr>
+<td>6C10h</td>
+<td><code>TOKLNUM</code></td>
+<td>… Zeilennummer (2; 0 = Direktmodus) …</td>
+</tr>
+<tr>
+<td>6C12h</td>
+<td><code>TOKTEXT</code></td>
+<td>… Tokentext bis 0Dh</td>
+</tr>
+<tr>
+<td>6CB3h</td>
+<td>–</td>
+<td>Zahlenpuffer (<code>PRTNUM</code>), LIST-Bereich</td>
+</tr>
+<tr>
+<td>6ED3h–6FD2h</td>
+<td><code>TAPEBUF</code></td>
+<td>Blockpuffer für Kassettendateien (ROPEN/WOPEN /T)</td>
+</tr>
+<tr>
+<td>6FD3h–6FF1h</td>
+<td><code>FC_*</code></td>
+<td>aktuelle Datei: Index, Dateinummer, Modus, Typ, Laufwerk, Volumen, Pufferzeiger</td>
+</tr>
+<tr>
+<td>6FF2h–704Bh</td>
+<td><code>FILETAB</code></td>
+<td>Dateitabelle: 10 Einträge × 9 Bytes</td>
+</tr>
+<tr>
+<td>704Eh–7095h</td>
+<td><code>PRGEND</code> … <code>VALSP</code></td>
+<td><strong>Bereichszeiger</strong> (siehe unten)</td>
+</tr>
+<tr>
+<td>7096h</td>
+<td><code>FNPAR_SP</code></td>
+<td>Zeiger FN-Parameterstack (6 Bytes je Ebene, max. 5)</td>
+</tr>
+<tr>
+<td>7098h</td>
+<td><code>FOR_SP</code></td>
+<td>Zeiger FOR-Stack (19 Bytes je Eintrag, wächst ab 71D7h abwärts, max. 15)</td>
+</tr>
+<tr>
+<td>709Ah</td>
+<td><code>GOSUB_SP</code></td>
+<td>Zeiger GOSUB-Stack (7 Bytes je Eintrag, wächst ab 7240h abwärts, max. 15)</td>
+</tr>
+<tr>
+<td>7240h–724Ch</td>
+<td><code>FOR_VAR</code> …</td>
+<td>FOR-Eintrag im Aufbau: Laufvariable, Schrittweite, Endwert</td>
+</tr>
+<tr>
+<td>724Dh</td>
+<td><code>CURLINE</code></td>
+<td>aktuelle Zeile: Link (2) + Zeilennummer <code>CURLNUM</code> (2)</td>
+</tr>
+<tr>
+<td>7251h</td>
+<td><code>TXTPTR</code></td>
+<td>Textzeiger des Interpreters</td>
+</tr>
+<tr>
+<td>7253h–7255h</td>
+<td><code>FOR_CNT</code>, <code>FOR_DEPTH</code>, <code>GOSUB_DEPTH</code></td>
+<td>Zähler für FOR- und GOSUB-Einträge</td>
+</tr>
+<tr>
+<td>7256h</td>
+<td><code>ONERR_FLAG</code></td>
+<td>ON ERROR: 0 aus, 1 aktiv, 2 im Fehlerbehandler</td>
+</tr>
+<tr>
+<td>7257h</td>
+<td><code>ONERR_LINE</code></td>
+<td>Zeile des Fehlerbehandlers</td>
+</tr>
+<tr>
+<td>7259h–725Bh</td>
+<td><code>DATA_FLAG</code>, <code>DATA_PTR</code></td>
+<td>READ-Position</td>
+</tr>
+<tr>
+<td><strong>725Ch</strong></td>
+<td><code>PRGTXT</code></td>
+<td><strong>Beginn des BASIC-Programms</strong></td>
+</tr>
+<tr>
+<td>…</td>
+<td></td>
+<td>Programm, dahinter die dynamischen Bereiche</td>
+</tr>
+<tr>
+<td><code>STKTOP</code></td>
+<td></td>
+<td>Z80-Stack (wächst abwärts)</td>
+</tr>
+<tr>
+<td>D000h–DFFFh</td>
+<td></td>
+<td>Text-VRAM (über die PIO eingeblendet)</td>
+</tr>
+<tr>
+<td>E000h–FFFFh</td>
+<td></td>
+<td>Grafik-VRAM (über die PIO eingeblendet)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="die-dynamischen-bereiche">Die dynamischen Bereiche</h2>
+<p>Hinter dem Programm liegen alle veränderlichen Daten als Kette von Bereichen. Jeder Bereich
+hat einen Zeiger in der Tabelle 704Eh–7095h; jeder beginnt beim Anlegen mit <code>00h 00h</code>
+(leere Liste). Wird irgendwo Platz geschaffen oder freigegeben (<code>MEMINS</code>, <code>MEMDEL</code>), verschiebt
+sich alles dahinter, und <code>ADJ_PTRS</code> korrigiert alle Zeiger oberhalb der Änderungsstelle.</p>
+<table>
+<thead>
+<tr>
+<th>Zeiger</th>
+<th>Name</th>
+<th>Bereich</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>704Eh</td>
+<td><code>PRGEND</code></td>
+<td>Ende des Programms (hinter <code>00h 00h</code>) = Beginn der folgenden Bereiche</td>
+</tr>
+<tr>
+<td>7050h–7083h</td>
+<td>–</td>
+<td>26 Puffer der Dateiverwaltung: 10 Dateipuffer (je 320 Bytes, wenn belegt), Puffer je Laufwerk ab 7064h, weitere bei 707Ch (Verzeichnis), 7080h (IMAGE/P), 7082h (Satzpuffer)</td>
+</tr>
+<tr>
+<td>7084h</td>
+<td><code>P_DEFFN</code></td>
+<td>DEF-FN-Definitionen</td>
+</tr>
+<tr>
+<td>7086h</td>
+<td><code>P_ARRAYS</code></td>
+<td>Zahlfelder, 2-dimensional</td>
+</tr>
+<tr>
+<td>7088h</td>
+<td>–</td>
+<td>Zahlfelder, 1-dimensional</td>
+</tr>
+<tr>
+<td>708Ah</td>
+<td><code>P_NUMVAR</code></td>
+<td>Zahlvariablen</td>
+</tr>
+<tr>
+<td>708Ch</td>
+<td>–</td>
+<td>Stringfelder, 2-dimensional</td>
+</tr>
+<tr>
+<td>708Eh</td>
+<td>–</td>
+<td>Stringfelder, 1-dimensional</td>
+</tr>
+<tr>
+<td>7090h</td>
+<td><code>P_STRVAR</code></td>
+<td>Stringvariablen</td>
+</tr>
+<tr>
+<td>7092h</td>
+<td><code>P_STRTMP</code></td>
+<td>String-Zwischenergebnisse (werden vor jeder Anweisung verworfen)</td>
+</tr>
+<tr>
+<td>7094h</td>
+<td><code>VALSP</code></td>
+<td>Wertestack der Ausdrucksauswertung</td>
+</tr>
+</tbody>
+</table>
+<pre><code>725Ch  PRGTXT ─► [Zeile][Zeile]…[00 00]
+       PRGEND ─► [Dateipuffer …]
+       P_DEFFN ─► [FN-Definitionen][00 00]
+       P_ARRAYS ─► [Zahlfelder 2-dim.][Zahlfelder 1-dim.]
+       P_NUMVAR ─► [Zahlvariablen][00 00]
+                   [Stringfelder 2-dim.][Stringfelder 1-dim.]
+       P_STRVAR ─► [Stringvariablen][00 00]
+       P_STRTMP ─► [String-Zwischenwerte]
+       VALSP   ─► [Wertestack] ─►  … frei …  ◄─ SP (STKTOP)
+</code></pre>
+<p>Der freie Speicher ist der Abstand zwischen dem Ende des Wertestacks und dem Z80-Stack minus
+einer Reserve von 100 Bytes (<code>MEMFREE</code>/<code>CHKMEM</code>). Reicht er nicht, folgt Fehler 6. Die Funktion
+<code>SIZE</code> liefert diesen Wert.</p>
+<h3 id="initialisieren-und-loschen">Initialisieren und Löschen</h3>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Wirkung</th>
+<th>benutzt von</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CLEARALL</code></td>
+<td>leeres Programm, alle Bereiche, Dateitabelle, Stacks</td>
+<td>Kaltstart, <code>NEW</code>, Laden</td>
+</tr>
+<tr>
+<td><code>CLRPROG</code> / <code>AREAS_INIT</code></td>
+<td>Programm leeren und alle Zeiger ab 704Eh auf leere Bereiche setzen</td>
+<td><code>CLEARALL</code></td>
+</tr>
+<tr>
+<td><code>CLR_AREAS</code></td>
+<td>dasselbe ab <code>P_DEFFN</code> (Programm bleibt)</td>
+<td><code>CLR</code>, <code>RUN</code></td>
+</tr>
+<tr>
+<td><code>CLEARVARS</code></td>
+<td><code>FILETAB</code> nullen, die 26 Puffer freigeben</td>
+<td>Fehler, <code>RUN</code>, Laden</td>
+</tr>
+<tr>
+<td><code>INITVARPTR</code></td>
+<td>FOR-, GOSUB-, FN-Stack zurücksetzen, <code>ON ERROR</code> aus</td>
+<td><code>RUN</code>, Fehler</td>
+</tr>
+</tbody>
+</table>
+<h2 id="monitor-routinen-die-das-basic-benutzt">Monitor-Routinen, die das BASIC benutzt</h2>
+<p>Das BASIC greift für Bildschirm, Tastatur, Uhr und Ton auf den Monitor zu. Die wichtigsten:</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GETLINE</code></td>
+<td>Zeile mit dem Cursor-Editor einlesen (Ergebnis ab DE, Ende 0Dh; 0Bh = BREAK)</td>
+</tr>
+<tr>
+<td><code>PRTSTR</code>, <code>MSGX</code>, <code>PRTSTR_RAW</code></td>
+<td>Text bis 0Dh ausgeben</td>
+</tr>
+<tr>
+<td><code>CRLF</code>, <code>CRLF_IF</code></td>
+<td>Zeilenvorschub (bedingt)</td>
+</tr>
+<tr>
+<td><code>KEYSCAN</code>, INKEY</td>
+<td>Tastatur abfragen (<code>GET</code>)</td>
+</tr>
+<tr>
+<td><code>TIMER_SET</code>, <code>TIMER_GET</code></td>
+<td>Uhr stellen und lesen (<code>TI$</code>)</td>
+</tr>
+<tr>
+<td><code>BEEP</code>, <code>MUSIC_PLAY</code></td>
+<td>Ton, MUSIC</td>
+</tr>
+<tr>
+<td><code>MON_WARM</code></td>
+<td>zurück in den Monitor (<code>MON</code>)</td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="index.html">← Überblick</a><a class="next" href="tokenizer.html">Tokenizer und Programmtext →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

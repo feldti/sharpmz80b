@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Werkzeuge und Tests – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li class="cur"><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#make-ziele">make-Ziele</a></li><li><a href="#tokenizer">Tokenizer</a></li><li><a href="#bcd-test">BCD-Test</a></li><li><a href="#gesamtlauf">Gesamtlauf</a></li><li><a href="#werkzeuge-der-analyse">Werkzeuge der Analyse</a></li></ul></aside>
+<h1 id="werkzeuge-und-tests">Werkzeuge und Tests</h1>
+<p>Alle Werkzeuge liegen in <code>tools/</code> und laufen mit Python 3; zum Übersetzen braucht man <code>pasmo</code>,
+für die Emulatortests <code>z88dk-ticks</code> aus z88dk.</p>
+<h2 id="make-ziele">make-Ziele</h2>
+<table>
+<thead>
+<tr>
+<th>Ziel</th>
+<th>SB-6610-Anteil</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>make</code></td>
+<td>übersetzt <code>sb6610/sb6610.asm</code> nach <code>build/sb6610.bin</code>, erzeugt <code>sb6610/sb6610.lst</code></td>
+</tr>
+<tr>
+<td><code>make check</code></td>
+<td>vergleicht <code>build/sb6610.bin</code> Byte für Byte mit dem Original-Abbild</td>
+</tr>
+<tr>
+<td><code>make test</code></td>
+<td>Tokenizertest mit <code>--basic 6610</code>, BCD-Test, Gesamtlauf</td>
+</tr>
+<tr>
+<td><code>make reloc-check</code></td>
+<td>Verschiebbarkeit (mit <code>NOJUNK</code>), Tests auf den verschobenen Abbildern</td>
+</tr>
+<tr>
+<td><code>make ref</code></td>
+<td>Befehlsreferenz <code>docs/BEFEHLE_SB6610.md</code></td>
+</tr>
+<tr>
+<td><code>make doku6610</code></td>
+<td>diese HTML-Dokumentation</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tokenizer">Tokenizer</h2>
+<p><code>tools/sb6511tok.py --basic 6610</code> wandelt Programme zwischen MZF (Typ BTX) und Klartext und
+bildet dabei <code>CRUNCH</code> und <code>LISTLINE</code> des Originals exakt nach
+(<a href="tokenizer.html#werkzeug">Tokenizer</a>). <code>tools/test_sb6511tok.py --basic 6610</code> prüft die
+Schlüsselworttabellen gegen das Abbild und vergleicht im Emulator 334 feste und zufällige
+Zeilen mit dem Originalcode.</p>
+<h2 id="bcd-test">BCD-Test</h2>
+<p><code>tools/test_sb6610.py</code> ruft einzelne Routinen des Abbilds im Emulator auf: <code>STR2NUM</code> (Bytes des
+Zahlformats), <code>NUM2STR</code> (Ausgabeformen), <code>OP_ADD</code>/<code>OP_SUB</code>/<code>OP_MUL</code>/<code>OP_DIV</code>, <code>FN_SQR</code>, <code>FN_INT</code>
+und die Flags von <code>FP_CMP</code> – 38 Fälle mit festen Erwartungen.</p>
+<h2 id="gesamtlauf">Gesamtlauf</h2>
+<p><code>tools/test_sb6610_run.py</code> lässt <strong>das ganze BASIC</strong> im Emulator laufen. Das Abbild startet bei
+<code>BC_RAMEND</code> (RAM-Ende C000h, ohne RAM-Test und Autostart); umgeleitet werden nur die Geräte:</p>
+<table>
+<thead>
+<tr>
+<th>Original</th>
+<th>im Test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GETLINE</code> (06A4h)</td>
+<td>liest die nächste Zeile eines Skripts</td>
+</tr>
+<tr>
+<td><code>PRTCHR_RAW</code> (0907h), <code>DISPCTRL</code> (0A6Eh)</td>
+<td>schreiben in einen Ausgabepuffer</td>
+</tr>
+<tr>
+<td><code>MOTOR_OFF</code>, <code>BEEP</code>, <code>TIMER_SET</code></td>
+<td>kehren sofort zurück</td>
+</tr>
+</tbody>
+</table>
+<p>Eingänge (<code>IN</code>) liefert der Emulator als FFh, beim MZ-80B heißt das „keine Taste, kein BREAK“.
+Alles andere ist Originalcode. Sechs Sitzungen werden mit festen Erwartungen verglichen:</p>
+<ol>
+<li>Rechnen, Fehlermeldung, <code>LIST</code> mit Bereich.</li>
+<li>Programm mit FOR, Strings, SQR/INT/ABS/SGN, großen Zahlen, Feldern, DEF FN, GOSUB.</li>
+<li>PRINT USING, DELETE, fehlende Funktionen, READ/DATA/ON GOTO, Division durch 0.</li>
+<li>weitere PRINT-USING-Fälle.</li>
+<li>Abschneiden bei PRINT USING.</li>
+<li>alle Beispiele aus dem Handbuch, Kapitel 2.4.1.</li>
+</ol>
+<p>Mit <code>--show</code> gibt das Werkzeug die Bildschirmausgabe nur aus; so lassen sich eigene Versuche
+machen. Beispiel einer Sitzung:</p>
+<pre><code>10 A=1/3:PRINT A;A*3
+20 PRINT 0.1+0.2,2^0
+RUN
+ 0.333333333333333 0.999999999999999
+ 0.3
+*Error 1 in 20
+Ready
+</code></pre>
+<h2 id="werkzeuge-der-analyse">Werkzeuge der Analyse</h2>
+<table>
+<thead>
+<tr>
+<th>Werkzeug</th>
+<th>Zweck</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/port_sb6610.py</code>, <code>tools/emit_sb6610.py</code></td>
+<td>haben die erste Fassung von <code>sb6610.asm</code> aus der SB-6511-Quelle erzeugt (Bytevergleich mit Platzhaltern für Adressen, Übernahme von Namen und Kommentaren, Ablaufverfolgung im neuen Code). Die Quelle wird seitdem von Hand gepflegt.</td>
+</tr>
+<tr>
+<td><code>tools/z80dis.py</code></td>
+<td>Z80-Disassembler mit pasmo-Syntax (nur dokumentierte Befehle)</td>
+</tr>
+<tr>
+<td><code>tools/reloccheck.py</code></td>
+<td>Verschiebbarkeit prüfen (<code>--define NOJUNK</code>)</td>
+</tr>
+<tr>
+<td><code>tools/mkref.py --basic 6610</code></td>
+<td>Befehlsreferenz</td>
+</tr>
+<tr>
+<td><code>tools/mkdoku6610.py</code></td>
+<td>diese Doku aus <code>sb6610/doku/src/*.md</code>, der Quelle und der Symboldatei</td>
+</tr>
+<tr>
+<td><code>tools/sbdisk.py</code></td>
+<td>Disketten lesen; erkennt SB-6610-Systemdisketten und Programme mit <code>USING</code></td>
+</tr>
+</tbody>
+</table>
+<footer><div class="pn"><a class="prev" href="erweitern.html">← Erweitern und Verschieben</a><a class="next" href="routinen.html">Routinenverzeichnis →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

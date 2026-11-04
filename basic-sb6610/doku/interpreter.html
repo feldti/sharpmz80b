@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interpreterschleife und Ablauf – SB-6610 Double Precision BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6610<br><span>Double Precision BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="unterschiede.html">Unterschiede zu SB-6511</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li class="cur"><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="zahlen.html">BCD-Zahlen und Arithmetik</a></li>
+<li><a href="printusing.html">PRINT USING</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe, Dateien, Drucker</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Erweitern und Verschieben</a></li>
+<li><a href="werkzeuge.html">Werkzeuge und Tests</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#die-schleife">Die Schleife</a></li><li><a href="#ausdruecke">Ausdrücke</a></li><li><a href="#variablen">Variablen</a></li><li><a href="#felder">Felder</a></li><li><a href="#stacks">Stacks</a></li><li><a href="#list-lock-ein-unbekannter-listschutz">LIST_LOCK: ein unbekannter Listschutz</a></li><li><a href="#weitere-aenderungen">Weitere Änderungen</a></li></ul></aside>
+<h1 id="interpreterschleife-und-ablauf">Interpreterschleife und Ablauf</h1>
+<p>Interpreterschleife, Ausdrucksauswertung, Variablen und Strings sind aus SB-6511 übernommen. Was
+sich geändert hat, hängt fast immer an der Größe der Zahlen: Jede Stelle, die eine Zahl kopiert,
+anlegt oder überspringt, rechnet jetzt mit 9 statt 5 Bytes. Die
+<a href="../../basic-sb6511/doku-basic/interpreter.html">SB-6511-Dokumentation</a> beschreibt die Abläufe im Einzelnen.</p>
+<h2 id="die-schleife">Die Schleife</h2>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th style="text-align: right;">Adresse</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NEXTSTMT</code></td>
+<td style="text-align: right;">1CFFh</td>
+<td>nach <code>:</code> weiter oder zur nächsten Zeile; prüft BREAK und die Tasten</td>
+</tr>
+<tr>
+<td><code>NEXTLINE</code> / <code>NL_NEXT</code></td>
+<td style="text-align: right;">1D0Fh / 1D17h</td>
+<td>nächste Programmzeile nach <code>CURLINE</code>, Programmende</td>
+</tr>
+<tr>
+<td><code>EXECSTMT2</code></td>
+<td style="text-align: right;">1D29h</td>
+<td>vor jeder Anweisung</td>
+</tr>
+<tr>
+<td><code>DISPATCH</code></td>
+<td style="text-align: right;">1D4Dh</td>
+<td>Token <code>80h,80h+n</code> → <code>STMT_TAB[n]</code> (1D8Ch), kein Token → <code>LET</code></td>
+</tr>
+</tbody>
+</table>
+<p>In SB-6511 prüfte <code>NEXTLINE</code> über <code>NL_SRQ</code> zusätzlich die SRQ-Leitung der GP-IB-Karte (<code>ON SRQ</code>);
+dieser Teil fehlt, die Aufrufer springen direkt nach <code>NL_NEXT</code>.</p>
+<p>Die Programmiertechniken sind dieselben: Inline-Parameter hinter <code>CALL</code> (<code>SYNCHK</code>, <code>CHK_CHR_ALT</code>,
+<code>FINDLINE</code>, <code>MUL16</code>, <code>VAL2UINT</code> …), die Kette der Fehlereinsprünge <code>ERR_01</code>…<code>ERR_70</code> mit dem
+<code>DEFB 01h</code>-Trick und viel selbstmodifizierender Code. Im neuen Code kommen weitere Fälle dazu, etwa
+<code>FP_NORM</code> und <code>FP_SHRN</code>, die ihre Schiebeweiten in die eigenen Befehle schreiben, oder
+<code>ADD_SWAP</code>, dessen Befehl <code>ASW_SIGN</code> je nach Addition oder Subtraktion <code>NOP</code> oder <code>CPL</code> ist.</p>
+<h2 id="ausdruecke">Ausdrücke</h2>
+<p><code>EVAL</code> (25B3h) und <code>EVAL_EXPR</code> (2513h) werten wie bei SB-6511 mit Vorrangstufen aus;
+Zwischenergebnisse liegen auf dem Wertestack, dessen Zeiger <code>VALSP</code> (6694h) bei jedem Operanden
+um 9 Bytes weiterrückt (<code>VALSP_ADD</code>). Die Operatoren und Funktionen laufen über <code>FUNC_TAB</code>
+(292Bh); die Rechenroutinen bekommen Zeiger auf die Exponentbytes der beiden Operanden
+(siehe <a href="zahlen.html">Zahlen</a>).</p>
+<p><code>^</code> wird weiterhin erkannt (<code>POWER_OP</code>), sein Eintrag <code>FUNC_TAB[16]</code> zeigt aber auf <code>ERR_01</code>.
+Ebenso die Funktionen <code>SIN(</code> bis <code>LN(</code> (Einträge 38–42, 44, 45). Das Zeichen FFh im Programmtext
+steht wie bei SB-6511 für π (<code>PRIM_PI</code>), jetzt mit 16 Stellen: <code>FP_PI</code> = 3.141592653589793.</p>
+<h2 id="variablen">Variablen</h2>
+<p>Eine Zahlvariable belegt 11 Bytes: zwei Bytes Name, neun Bytes Wert. <code>NUMVAR</code> (2748h) sucht im
+Bereich <code>P_NUMVAR</code> und legt eine fehlende Variable mit dem Wert aus <code>FP_ZERO</code> an
+(<code>NUMVAR_NEW</code>). <code>VAL_PUT</code> und <code>VAL_GET</code> kopieren 9 Bytes zwischen Variable und Wertestack.
+Stringvariablen sind unverändert (Name, Länge, Text, 0Dh).</p>
+<h2 id="felder">Felder</h2>
+<p>Felder werden mit <code>DIM</code> angelegt, die Elemente von Zahlenfeldern sind 9 Bytes groß und beim Anlegen
+mit <code>FP_ZERO</code> gefüllt. Neu ist, dass der Index eines <strong>eindimensionalen</strong> Feldes größer als 255
+sein darf: <code>ARR_FIND</code> (2372h) liest ihn mit <code>EVAL_INT</code> statt <code>EVAL_BYTE</code>. Bei
+zweidimensionalen Feldern prüft <code>ARR_DIM2CHK</code> (2400h), dass der erste Index unter 256
+bleibt. Das Handbuch (2.4.3) bestätigt: <code>DIM A(1000)</code> ist erlaubt, <code>DIM B(80,80)</code> höchstens bis
+255 je Index.</p>
+<h2 id="stacks">Stacks</h2>
+<table>
+<thead>
+<tr>
+<th>Stack</th>
+<th>Zeiger</th>
+<th>Eintrag</th>
+<th>Bereich</th>
+<th>Grenze</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FOR</td>
+<td><code>FOR_SP</code> (6698h)</td>
+<td>27 Bytes: Variable (2), Schrittweite (9), Vorzeichen (1), Endwert (9), <code>CURLINE</code> (4), <code>TXTPTR</code> (2)</td>
+<td>ab 684Fh abwärts</td>
+<td>15 Einträge (Fehler 11)</td>
+</tr>
+<tr>
+<td>GOSUB</td>
+<td><code>GOSUB_SP</code> (669Ah)</td>
+<td>7 Bytes: <code>CURLINE</code>, <code>TXTPTR</code>, <code>FOR_CNT</code></td>
+<td>ab 68B8h abwärts</td>
+<td>15 Einträge (Fehler 10)</td>
+</tr>
+<tr>
+<td>FN</td>
+<td><code>FNPAR_SP</code> (6696h)</td>
+<td>6 Bytes je Ebene</td>
+<td>ab 66BAh abwärts</td>
+<td><code>FNPAR_END</code> (Fehler 12)</td>
+</tr>
+</tbody>
+</table>
+<p><code>ST_FOR</code> baut den Eintrag in <code>FOR_VAR</code> (68B8h) auf: Laufvariable, Endwert, Schrittweite
+(ohne <code>STEP</code>: <code>FP_ONE</code>) und ihr Vorzeichen in <code>FOR_STEPSGN</code>. Ein älterer Eintrag derselben
+Variablen wird samt allen jüngeren entfernt, dann kommen 27 Bytes auf den Stack. <code>ST_NEXT</code>
+addiert die Schrittweite mit <code>OP_ADD</code> und vergleicht je nach Vorzeichen mit <code>FP_CMP</code>; weil die
+Arithmetik dezimal rechnet, endet z. B. <code>FOR I=0 TO 1 STEP 0.1</code> genau nach elf Durchläufen.</p>
+<h2 id="list-lock-ein-unbekannter-listschutz">LIST_LOCK: ein unbekannter Listschutz</h2>
+<p><code>LIST</code> und <code>SAVE</code> prüfen den Direktmodus mit <code>CHK_DIRECT_LK</code> (1C63h) statt
+<code>CHK_DIRECT</code>. Zusätzlich wird das Byte <code>LIST_LOCK</code> (3ECEh) gelesen: Ist es nicht 0, kehrt der
+Befehl stillschweigend nach „Ready“ zurück – das Programm lässt sich weder listen noch speichern.</p>
+<p><code>CLEARALL</code> (<code>NEW</code>, Kaltstart) setzt <code>LIST_LOCK</code> auf 0. Gesetzt wird es aber nirgends im BASIC.
+Vermutlich war es als Listschutz gedacht, den ein Programm per <code>POKE</code> einschaltet. Weder das
+Handbuch noch eines der Programme auf den 66 vorhandenen Diskettenabbildern erwähnt oder benutzt es.</p>
+<blockquote>
+<p>Offener Punkt: Wer <code>LIST_LOCK</code> setzt, ist ungeklärt.</p>
+</blockquote>
+<h2 id="weitere-aenderungen">Weitere Änderungen</h2>
+<ul>
+<li><code>GET var</code> merkt sich die zuletzt gelesene Taste in <code>GET_LASTKEY</code>; solange dieselbe Taste
+  gedrückt bleibt, liefert <code>GET</code> einen leeren String bzw. 0 (<a href="ein-ausgabe.html#get">Ein-/Ausgabe</a>).</li>
+<li><code>CLR</code> ruft <code>PROG_CLRVARS</code> (Bereiche, Variablen und Stackzeiger zurücksetzen).</li>
+<li><code>INP@</code>/<code>OUT@</code> lesen die Portnummer mit <code>EVAL_BYTE</code> (0–255).</li>
+</ul>
+<footer><div class="pn"><a class="prev" href="tokenizer.html">← Tokenizer und Programmtext</a><a class="next" href="zahlen.html">BCD-Zahlen und Arithmetik →</a></div><p class="src">Grundlage: <code>sb6610/sb6610.asm</code> (kommentiertes Disassembly) und das Handbuch. Adressen gelten für das Original-Abbild; erzeugt von <code>tools/mkdoku6610.py</code>.</p></footer>
+</main>
+</body>
+</html>

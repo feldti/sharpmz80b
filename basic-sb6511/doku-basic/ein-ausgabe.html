@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ein-/Ausgabe und Dateien – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li class="cur"><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#gerate-und-dateinummern">Geräte und Dateinummern</a></li><li><a href="#print">PRINT</a></li><li><a href="#input-und-get">INPUT und GET</a></li><li><a href="#dateiangaben">Dateiangaben</a></li><li><a href="#das-disketten-dateisystem">Das Disketten-Dateisystem</a></li><li><a href="#dateibefehle">Dateibefehle</a></li><li><a href="#kassette">Kassette</a></li><li><a href="#maschinenprogramme-starten-run_obj">Maschinenprogramme starten (RUN_OBJ)</a></li><li><a href="#floppy-treiber-mb8876">Floppy-Treiber (MB8876)</a></li></ul></aside>
+<h1 id="ein-ausgabe-und-dateien">Ein-/Ausgabe und Dateien</h1>
+<h2 id="gerate-und-dateinummern">Geräte und Dateinummern</h2>
+<p>Alle Ein- und Ausgaben laufen über eine gemeinsame Verteilung. Das aktuelle Ziel steht in
+<code>FILE_NO</code> (6FD4h):</p>
+<table>
+<thead>
+<tr>
+<th><code>FILE_NO</code></th>
+<th>Gerät</th>
+<th>Angabe im Befehl</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>80h</td>
+<td>Bildschirm / Tastatur</td>
+<td>ohne Angabe</td>
+</tr>
+<tr>
+<td>81h</td>
+<td>DATA-Zeilen (nur READ)</td>
+<td>–</td>
+</tr>
+<tr>
+<td>82h</td>
+<td>Drucker</td>
+<td><code>/P</code></td>
+</tr>
+<tr>
+<td>83h</td>
+<td>Kassette</td>
+<td><code>/T</code></td>
+</tr>
+<tr>
+<td>1–127</td>
+<td>geöffnete Datei <code>#n</code></td>
+<td><code>#n</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>GETFILENO</code> liest ein optionales <code>#n</code> (1–127, sonst Fehler 64), <code>GETDEVICE</code> die Angaben
+<code>/P</code> und <code>/T</code>.</p>
+<h3 id="dev_dispatch">DEV_DISPATCH</h3>
+<p><code>DEV_DISPATCH</code> (3F26h) wählt aus einer Sprungtabelle die Routine für das aktuelle Ziel:</p>
+<ul>
+<li><code>FILE_NO</code> ≥ 80h → Eintrag <code>FILE_NO − 80h</code> (Bildschirm, DATA, Drucker, Kassette),</li>
+<li>Datei <code>#n</code> → Eintrag <code>FC_TYPE + 10</code> (Gerätetyp der Datei: 0 = Diskette, 3 = eigene Routine
+  über <code>USR</code>).</li>
+</ul>
+<p>Fehler in Gerätetreibern werden über <code>SET_IOERR</code> abgefangen: IY zeigt auf einen Behandler,
+der Treiber legt die Fehlernummer bei (IY−1) ab und springt mit <code>JP (IY)</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Tabelle</th>
+<th>Einträge (Auswahl)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DEVTAB_PRINT</code> (Zeilenende, 0–14)</td>
+<td><code>CRLF</code> (Bildschirm), <code>PRN_CRLF</code> (Drucker), <code>FILE_FLUSH</code> (Diskette)</td>
+</tr>
+<tr>
+<td><code>DEVTAB_PRINT+2·15</code> (ein Element)</td>
+<td><code>PRTSTR_RAW</code> (Bildschirm), <code>PRN_TEXT</code> (Drucker), <code>TPRINT</code> (Kassette), <code>FILE_PUT</code> (Diskette), <code>DEV_USER</code></td>
+</tr>
+<tr>
+<td><code>DEVTAB_INPUT</code></td>
+<td><code>TINPUT</code> (Kassette), <code>FILE_GET</code> (Diskette), <code>DEV_USER</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="print">PRINT</h2>
+<p><code>PRINT [/P | /T | #n[(satz)]] [ausdruck][; | ,] …</code> – auch als <code>?</code> (<code>ST_PRINT</code>, 3C36h).</p>
+<ol>
+<li>Gerät bestimmen (siehe oben). Bei einer Satzdatei muss hinter <code>#n</code> die Satznummer in
+   Klammern folgen (<code>FILE_RECNO</code>).</li>
+<li>Jedes Element wird mit <code>EVAL_EXPR</code> ausgewertet und mit <code>VAL2TEXT</code> bzw. <code>STR2TEXT</code> als Text
+   nach <code>INBUF</code> gebracht (Zahlen über <code>NUM2STR</code>, mit führendem Leerzeichen oder <code>-</code>), dann über
+   <code>DEVTAB_PRINT+2·15</code> ausgegeben.</li>
+<li>Trennzeichen:</li>
+<li><code>;</code> – direkt weiter,</li>
+<li><code>,</code> – Bildschirm: nächste Tabulatorposition (<code>TABPOS</code>); Drucker: nächste durch 10 teilbare
+     Spalte (<code>PRN_TABZONE</code>),</li>
+<li><code>TAB(n)</code> – Bildschirm: mit Zeichen 03h (Cursor rechts) bis Spalte n; Drucker: mit
+     Leerzeichen; andere Geräte: Fehler 1.</li>
+<li>Endet die Anweisung nicht mit <code>;</code> oder <code>,</code>, folgt der Zeilenabschluss über <code>DEVTAB_PRINT</code>.</li>
+</ol>
+<p><code>VAL2TEXT</code>/<code>STR2TEXT</code> schließen jeden Text mit 0Dh ab, und <code>FILE_GET</code> liest beim Zurücklesen
+jeweils bis zum nächsten 0Dh; so kann <code>INPUT #n</code> die Werte einzeln zurücklesen.</p>
+<h2 id="input-und-get">INPUT und GET</h2>
+<p><code>INPUT [/T | #n] ["text";] var[,var…]</code> – nur im Programm (<code>ST_INPUT</code>, 3F75h).</p>
+<ul>
+<li><strong>Bildschirm:</strong> Text bzw. <code>?</code> ausgeben, eine Zeile ab der Cursorposition mit <code>GETLINE</code>
+  lesen. Mehrere Werte werden durch Kommas getrennt, Strings dürfen in Anführungszeichen stehen.
+  Fehlen Werte, fragt <code>IN_MORE</code> mit <code>?</code> nach. BREAK merkt die Stelle für <code>CONT</code>
+  (<code>CONT_FLAG</code> = 80h).</li>
+<li><strong>Gerät/Datei:</strong> je Variable ein Element über <code>DEVTAB_INPUT</code>.</li>
+<li>Zahlen werden mit <code>NUMSTR_EVAL</code> geprüft: der Text darf nur aus Ziffern, <code>.</code>, <code>+</code>, <code>-</code> und
+  <code>E</code> bestehen, sonst Fehler 4.</li>
+</ul>
+<p><code>GET var</code> liest eine Taste ohne zu warten: bei einer Stringvariablen das Zeichen oder <code>""</code>, bei
+einer Zahlvariablen den Ziffernwert oder 0.</p>
+<h2 id="dateiangaben">Dateiangaben</h2>
+<p><code>FILESPEC</code> (4EEAh) liest:</p>
+<pre><code>[FD[1-4][@vol],] &quot;name&quot;      Datei auf Diskette
+USR(adresse)                  eigene Treiberroutine (FC_TYPE 3)
+</code></pre>
+<ul>
+<li>Name 1–16 Zeichen, sonst Fehler 60.</li>
+<li>Ohne <code>FD</code> gilt das Standardgerät (<code>DEV_DEFTYPE</code>, gesetzt mit <code>DIR FDn</code>).</li>
+<li>Laufwerk nicht 1–4: Fehler 61; Volumennummer nicht 1–127: Fehler 52. Hat die Diskette eine
+  andere Volumennummer als angegeben, folgt ebenfalls Fehler 52 (Diskettenwechsel-Schutz).</li>
+</ul>
+<h2 id="das-disketten-dateisystem">Das Disketten-Dateisystem</h2>
+<h3 id="aufbau-der-diskette">Aufbau der Diskette</h3>
+<table>
+<thead>
+<tr>
+<th>Logischer Sektor</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>15</td>
+<td>Belegungstabelle: ein Bit je Sektor</td>
+</tr>
+<tr>
+<td>16–23</td>
+<td>Verzeichnis: 2 KB = 64 Einträge × 32 Bytes</td>
+</tr>
+<tr>
+<td>übrige</td>
+<td>Dateidaten</td>
+</tr>
+</tbody>
+</table>
+<p>Eine Spur hat 16 Sektoren zu 256 Bytes; logische Spur / 2 ist der Zylinder, Bit 0 die Seite.
+Der logische Sektor n liegt auf Spur n / 16, Sektor (n mod 16) + 1 (<code>FD_LOG2PHYS</code>).</p>
+<h3 id="verzeichniseintrag-dirent-32-bytes">Verzeichniseintrag (DIRENT, 32 Bytes)</h3>
+<table>
+<thead>
+<tr>
+<th>Versatz</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>+00h</td>
+<td>Dateityp: 0 frei, 1 OBJ, 2 BTX, 3 BSD, 4 BRD (SWAP legt Auslagerungsdateien mit Typ 80h/81h an)</td>
+</tr>
+<tr>
+<td>+01h</td>
+<td>Name, 16 Zeichen, mit 0Dh abgeschlossen</td>
+</tr>
+<tr>
+<td>+12h</td>
+<td>Sperre (≠ 0 = <code>LOCK</code>)</td>
+</tr>
+<tr>
+<td>+14h</td>
+<td>Größe in Bytes</td>
+</tr>
+<tr>
+<td>+16h</td>
+<td>Ladeadresse</td>
+</tr>
+<tr>
+<td>+18h</td>
+<td>Startadresse</td>
+</tr>
+<tr>
+<td>+1Eh</td>
+<td>erster Sektor</td>
+</tr>
+</tbody>
+</table>
+<h3 id="dateitypen">Dateitypen</h3>
+<table>
+<thead>
+<tr>
+<th>Typ</th>
+<th>Name</th>
+<th>Inhalt</th>
+<th>Ablage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>OBJ</td>
+<td>Maschinenprogramm mit Lade- und Startadresse</td>
+<td>zusammenhängende Sektoren</td>
+</tr>
+<tr>
+<td>2</td>
+<td>BTX</td>
+<td>BASIC-Programm (Token, Links relativ)</td>
+<td>zusammenhängende Sektoren</td>
+</tr>
+<tr>
+<td>3</td>
+<td>BSD</td>
+<td>sequentielle Datendatei</td>
+<td>verkettete Sektoren</td>
+</tr>
+<tr>
+<td>4</td>
+<td>BRD</td>
+<td>Satzdatei (wahlfreier Zugriff, 32-Byte-Sätze)</td>
+<td>über eine Sektortabelle</td>
+</tr>
+</tbody>
+</table>
+<h3 id="wichtige-routinen">Wichtige Routinen</h3>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DIR_SCAN</code> (4DF3h)</td>
+<td>Verzeichnis lesen und für jeden Eintrag einen Rückruf (Inline-Adresse) mit HL = Eintrag aufrufen: Z = leer, M = Diskettenkopf (dessen Volumennummer wird geprüft, falsche Diskette: Fehler 52). Der Rückruf kehrt zurück (weiter suchen) oder bricht mit <code>POP AF</code> ab</td>
+</tr>
+<tr>
+<td><code>DIR_READ</code> / <code>DIR_WRITE</code></td>
+<td>2 KB Verzeichnis ab Sektor 16 in den Puffer bei 707Ch lesen bzw. zurückschreiben</td>
+</tr>
+<tr>
+<td><code>NAMECMP</code></td>
+<td>Namen vergleichen (bis 16 Zeichen bzw. 0Dh)</td>
+</tr>
+<tr>
+<td><code>DIR_NEWFILE</code></td>
+<td>freien Eintrag suchen und anlegen (Name vorhanden: 42, Verzeichnis voll: 51)</td>
+</tr>
+<tr>
+<td><code>SEC_ALLOC</code> (4D6Bh)</td>
+<td>DE zusammenhängende freie Sektoren in der Belegungstabelle suchen und belegen (keine: Fehler 53)</td>
+</tr>
+<tr>
+<td><code>UNIT_GETBUF</code></td>
+<td>Puffer des Laufwerks holen; beim ersten Mal 256 Bytes anlegen und Sektor 15 lesen</td>
+</tr>
+<tr>
+<td><code>DISK_READ</code> / <code>DISK_WRITE</code></td>
+<td>DE Bytes ab Sektor BC von/nach HL, über <code>DISKTAB</code> an den Floppy-Treiber</td>
+</tr>
+<tr>
+<td><code>CHK_NOTOPEN</code></td>
+<td>Fehler 43, wenn die Datei gerade geöffnet ist</td>
+</tr>
+</tbody>
+</table>
+<h3 id="die-dateitabelle-filetab">Die Dateitabelle FILETAB</h3>
+<p>Für jede geöffnete Datei gibt es in <code>FILETAB</code> (6FF2h) einen von 10 Einträgen zu 9 Bytes; Byte 0
+ist die Dateinummer, Byte 8 das EOF-Kennzeichen (für <code>IF EOF(#n)</code>). Die gerade benutzte Datei
+wird nach <code>FC_IDX</code> … (6FD3h) kopiert (<code>FILE_SELECT</code>, <code>FILE_LOAD</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Feld</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FC_IDX</code></td>
+<td>Index 0–9 in FILETAB</td>
+</tr>
+<tr>
+<td><code>FILE_NO</code></td>
+<td>Dateinummer</td>
+</tr>
+<tr>
+<td><code>FC_MODE</code></td>
+<td>0 lesen, 1 schreiben, 2 Satzdatei</td>
+</tr>
+<tr>
+<td><code>FC_TYPE</code>, <code>FC_UNIT</code></td>
+<td>Gerätetyp, Laufwerk</td>
+</tr>
+<tr>
+<td><code>FC_VOL</code></td>
+<td>Volumennummer</td>
+</tr>
+<tr>
+<td><code>FC_ENTRY</code></td>
+<td>Zeiger auf den FILETAB-Eintrag</td>
+</tr>
+<tr>
+<td><code>FC_B00</code> … <code>FC_B13E</code></td>
+<td>Zeiger in den 320-Byte-Dateipuffer (Sektorpuffer ab +40h)</td>
+</tr>
+</tbody>
+</table>
+<p>Jede offene Datei bekommt einen Puffer von 320 Bytes in einem der dynamischen Bereiche
+(7050h + 2·Index, <code>FILE_INITFD</code>); jedes benutzte Laufwerk zusätzlich 256 Bytes für die
+Belegungstabelle. <code>UNITS_CHECK</code> gibt nicht mehr benutzte Puffer frei und schaltet ohne offene
+Datei den Motor ab.</p>
+<h2 id="dateibefehle">Dateibefehle</h2>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+<th>Fehler</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SAVE datei</code></td>
+<td>Programm als BTX speichern (nur Direktmodus): Platz suchen, Links relativ machen (<code>UNLINK</code>), Sektoren schreiben, Links zurückrechnen, Verzeichniseintrag anlegen</td>
+<td>42, 51, 53</td>
+</tr>
+<tr>
+<td><code>LOAD datei</code></td>
+<td>Eintrag suchen; Typ OBJ → <code>LOAD_OBJ</code> (an die Ladeadresse), sonst muss es BTX sein. Programm lesen, Links umrechnen (<code>RELINK</code>)</td>
+<td>40, 63, 18, 6</td>
+</tr>
+<tr>
+<td><code>RUN "datei"</code></td>
+<td>wie LOAD, danach starten; ein OBJ-Programm wird gestartet</td>
+<td></td>
+</tr>
+<tr>
+<td><code>CHAIN datei</code></td>
+<td>laden und starten, Variablen bleiben</td>
+<td></td>
+</tr>
+<tr>
+<td><code>APPEND datei</code></td>
+<td>Programm hinter das vorhandene laden (bei <code>(VALSP)</code>+1FFFh) und Zeile für Zeile mit <code>EDITLINE</code> einfügen</td>
+<td></td>
+</tr>
+<tr>
+<td><code>SWAP datei</code></td>
+<td>aktuelles Programm mit Variablen auslagern, anderes laden; dessen END kehrt zurück</td>
+<td>25</td>
+</tr>
+<tr>
+<td><code>ROPEN #n, datei</code></td>
+<td>sequentielle Datei (BSD) zum Lesen öffnen (Modus 0)</td>
+<td>40, 43, 63, 64</td>
+</tr>
+<tr>
+<td><code>WOPEN #n, datei</code></td>
+<td>BSD zum Schreiben anlegen (Modus 1)</td>
+<td>42, 43, 64</td>
+</tr>
+<tr>
+<td><code>XOPEN #n, datei</code></td>
+<td>Satzdatei (BRD) öffnen (Modus 2)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>PRINT #n[(satz)], …</code> / <code>INPUT #n[(satz)], …</code></td>
+<td>schreiben/lesen</td>
+<td>44</td>
+</tr>
+<tr>
+<td><code>CLOSE [#n[,#m…]]</code></td>
+<td>schließen; ohne Nummer alle (127…1). Schreibdateien: letzten Sektor schreiben und Verzeichniseintrag anlegen; Satzdateien: Sektortabelle sichern</td>
+<td></td>
+</tr>
+<tr>
+<td><code>KILL [#n…]</code></td>
+<td>Einträge aus FILETAB streichen, <strong>ohne</strong> zu schreiben</td>
+<td></td>
+</tr>
+<tr>
+<td><code>DIR [FD[n]] [/P]</code></td>
+<td>Verzeichnis ausgeben, setzt mit <code>FDn</code> das Standardgerät</td>
+<td></td>
+</tr>
+<tr>
+<td><code>DELETE datei</code></td>
+<td>Datei löschen (nur Typ 1–4), Sektoren freigeben</td>
+<td>46, 63, 43</td>
+</tr>
+<tr>
+<td><code>RENAME datei, "neu"</code></td>
+<td>umbenennen</td>
+<td>40, 42, 46, 60</td>
+</tr>
+<tr>
+<td><code>LOCK</code> / <code>UNLOCK datei</code></td>
+<td>Sperrbyte setzen/löschen</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><code>ROPEN</code>, <code>WOPEN</code>, <code>XOPEN</code> und <code>CLOSE</code> sind nur im Programm erlaubt; <code>#n</code> muss angegeben sein.</p>
+<h3 id="sequentielle-dateien-bsd">Sequentielle Dateien (BSD)</h3>
+<p><code>FILE_PUT</code> schreibt in den Sektorpuffer. Ist ein Sektor voll, holt <code>FILE_NEWSEC</code> über
+<code>SEC_ALLOC</code> einen neuen und verkettet ihn; <code>FPUT_NEXTSEC</code> schreibt den vollen Sektor. <code>FILE_GET</code>
+liest bis zum nächsten 0Dh, auch über Sektorgrenzen hinweg. Am Dateiende wird Byte 8 des
+FILETAB-Eintrags gesetzt; danach liefert <code>IF EOF(#n) THEN …</code> wahr.</p>
+<h3 id="satzdateien-brd">Satzdateien (BRD)</h3>
+<p>Eine BRD-Datei besteht aus <strong>Sätzen zu 32 Bytes</strong> (8 je Sektor). Die Satznummer steht in
+Klammern hinter der Dateinummer: <code>PRINT #3(17), A$</code> bzw. <code>INPUT #3(17), A$</code> (Satznummer &gt; 0).</p>
+<ul>
+<li><code>REC_LOCATE</code> zerlegt die Satznummer − 1 in Sektor (über die Sektortabelle bei <code>FC_B40</code>) und
+  Versatz (Satz · 32).</li>
+<li><code>REC_PUT</code> füllt den Text mit Leerzeichen auf 32 Bytes auf, verlängert die Datei bei Bedarf
+  (<code>REC_EXTEND</code>), lädt den Sektor in den Puffer bei 7082h, kopiert den Satz hinein und erhöht
+  <code>REC_NO</code>. Ein geänderter Sektor wird bei <code>FILE_FLUSH</code> zurückgeschrieben.</li>
+<li><code>REC_GET</code> liest einen Satz.</li>
+</ul>
+<h2 id="kassette">Kassette</h2>
+<table>
+<thead>
+<tr>
+<th>Befehl</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SAVE /T ["name"]</code></td>
+<td>Programm (Typ 2) mit Kopf auf Band schreiben</td>
+</tr>
+<tr>
+<td><code>LOAD /T ["name"]</code></td>
+<td>Kopf suchen (Typ 1–3, Name passend oder leer), „Found“/„Loading“ ausgeben; BTX laden, OBJ an seine Ladeadresse (unter LIMIT: Fehler 18, über MEMTOP: Fehler 6)</td>
+</tr>
+<tr>
+<td><code>VERIFY ["name"]</code></td>
+<td>gespeichertes Programm mit dem Band vergleichen (nur Direktmodus)</td>
+</tr>
+<tr>
+<td><code>WOPEN /T ["name"]</code>, <code>PRINT /T</code>, <code>CLOSE /T</code></td>
+<td>Datendatei (Typ 3) schreiben; Daten werden in <code>TAPEBUF</code> (256 Bytes) gesammelt und blockweise geschrieben, FFh markiert das Ende</td>
+</tr>
+<tr>
+<td><code>ROPEN /T ["name"]</code>, <code>INPUT /T</code></td>
+<td>Datendatei lesen</td>
+</tr>
+<tr>
+<td><code>REW</code>, <code>FAST</code></td>
+<td>Band zurück- bzw. vorspulen</td>
+</tr>
+</tbody>
+</table>
+<p><code>TAPE_WAIT</code> verlangt eine eingelegte Kassette („Set tape“, BREAK bricht ab). Ein Lesefehler
+ergibt Fehler 70. Für Blöcke ohne Pause wird die Wartezeit <code>DLY_LONG</code> des Monitors vorübergehend
+abgeschaltet (<code>DLY_OFF</code>: der erste Befehl wird durch <code>RET</code> ersetzt).</p>
+<h2 id="maschinenprogramme-starten-run_obj">Maschinenprogramme starten (RUN_OBJ)</h2>
+<p><code>RUN "datei"</code> mit einer OBJ-Datei lädt das Programm zunächst nach <code>PRGTXT</code>, weil seine
+Ladeadresse im Bereich des BASIC liegen darf. Dann wird eine kleine Kopier- und Startroutine
+(<code>RUN_TRAMP</code>) mit Länge, Quelle, Ziel und Startadresse gefüllt, nach FF10h kopiert und dort
+ausgeführt: sie verschiebt das Programm an seine Ladeadresse (<code>LDIR</code> bzw. <code>LDDR</code>, je nach
+Richtung) und springt es an. Damit kann ein Maschinenprogramm das BASIC überschreiben.</p>
+<h2 id="floppy-treiber-mb8876">Floppy-Treiber (MB8876)</h2>
+<p>Der Treiber (5C08h–5EEEh) wird über <code>FD_READ</code> (5C02h) und <code>FD_WRITE</code> (5C05h) aufgerufen, mit
+IX auf dem Parameterblock <code>DISK_PAR</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Versatz</th>
+<th>Inhalt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>+0</td>
+<td>Laufwerk 0–3</td>
+</tr>
+<tr>
+<td>+1/+2</td>
+<td>logischer Startsektor</td>
+</tr>
+<tr>
+<td>+3/+4</td>
+<td>Anzahl Bytes</td>
+</tr>
+<tr>
+<td>+5/+6</td>
+<td>Speicheradresse</td>
+</tr>
+<tr>
+<td>+7/+8</td>
+<td>Spur/Sektor in Arbeit</td>
+</tr>
+<tr>
+<td>+9/+10</td>
+<td>Startspur/-sektor</td>
+</tr>
+</tbody>
+</table>
+<p>Ports: D8h Kommando/Status, D9h Spur, DAh Sektor, DBh Daten, DCh Laufwerk/Motor, DDh Seite.
+Der MB8876 hat einen <strong>invertierten Datenbus</strong>: alle Werte werden vor <code>OUT</code> und nach <code>IN</code> mit
+<code>CPL</code> umgedreht.</p>
+<p>Ablauf:</p>
+<ol>
+<li><code>FD_SELECT</code>: Motor einschalten (beim ersten Mal mit Anlaufzeit), Laufwerk wählen (Port DCh:
+   Bit 7 Motor, Bit 2 Auswahl, Bit 0–1 Laufwerk), auf „bereit“ warten (sonst Fehler 50); beim
+   ersten Zugriff auf ein Laufwerk <code>RESTORE</code> auf Spur 0.</li>
+<li>Je Spur <code>SEEK</code>, dann <code>READ SECTOR</code> bzw. <code>WRITE SECTOR</code> mit Mehrfachsektoren (94h/B4h); die
+   Daten werden mit <code>INI</code>/<code>OUTI</code> übertragen. Nach Sektor 16 bricht <code>FORCE INTERRUPT</code> (D8h) ab,
+   es geht auf der nächsten Spur weiter.</li>
+<li>Fehler: bis zu 10 Versuche mit <code>RESTORE</code> dazwischen.</li>
+<li>Nach dem Schreiben werden die Sektoren zur Kontrolle gelesen (<code>FD_VERIFY</code>, 2 Versuche).</li>
+<li><code>FD_ERROR</code> bildet aus dem Status die Fehlernummer: nicht bereit (Bit 7) → 50, Sektor nicht
+   gefunden (Bit 4) → 54, sonst (auch Schreibschutz) → 41.</li>
+</ol>
+<p>Bei jedem „Ready“ (<code>BAS_READY</code>) wird der Motor abgeschaltet (<code>FD_MOTOR_OFF</code>).</p>
+<footer><div class="pn"><a class="prev" href="befehle.html">← Befehlsreferenz</a><a class="next" href="grafik.html">Grafik, Bildschirm, Drucker →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>

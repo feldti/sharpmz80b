@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tokenizer und Programmtext – SB-6511 Disk BASIC</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="side">
+<div class="brand"><a href="index.html">SB-6511<br><span>Disk BASIC · MZ-80B</span></a></div>
+<ul>
+<li><a href="index.html">Überblick</a></li>
+<li><a href="architektur.html">Aufbau und Speicher</a></li>
+<li class="cur"><a href="tokenizer.html">Tokenizer und Programmtext</a></li>
+<li><a href="interpreter.html">Interpreterschleife und Ablauf</a></li>
+<li><a href="ausdruecke.html">Ausdrücke und Variablen</a></li>
+<li><a href="gleitkomma.html">Gleitkomma und Mathematik</a></li>
+<li><a href="befehle.html">Befehlsreferenz</a></li>
+<li><a href="ein-ausgabe.html">Ein-/Ausgabe und Dateien</a></li>
+<li><a href="grafik.html">Grafik, Bildschirm, Drucker</a></li>
+<li><a href="schnittstellen.html">GP-IB und RS-232C</a></li>
+<li><a href="fehler.html">Fehler und Fehlerbehandlung</a></li>
+<li><a href="erweitern.html">Einen Befehl einbauen</a></li>
+<li><a href="routinen.html">Routinenverzeichnis</a></li>
+</ul>
+</nav>
+<main>
+<aside class="toc"><strong>Auf dieser Seite</strong><ul><li><a href="#token-format">Token-Format</a></li><li><a href="#crunch-eingabe-in-token-umsetzen">CRUNCH – Eingabe in Token umsetzen</a></li><li><a href="#listline-token-zuruck-in-klartext">LISTLINE – Token zurück in Klartext</a></li><li><a href="#programmzeilen-im-speicher">Programmzeilen im Speicher</a></li><li><a href="#zeilen-einfugen-ersetzen-loschen-editline">Zeilen einfügen, ersetzen, löschen – EDITLINE</a></li><li><a href="#zeilennummern">Zeilennummern</a></li><li><a href="#auto-und-list">AUTO und LIST</a></li><li><a href="#python-nachbildung">Python-Nachbildung</a></li></ul></aside>
+<h1 id="tokenizer-und-programmtext">Tokenizer und Programmtext</h1>
+<p>SB-6511 speichert Programme nicht als Klartext. Jede eingegebene Zeile wird von <code>CRUNCH</code>
+in eine Tokenform gebracht, in der Schlüsselwörter durch ein oder zwei Bytes ersetzt sind.
+<code>LISTLINE</code> macht daraus wieder Klartext. Beide Routinen sind vollständig tabellengesteuert.</p>
+<h2 id="token-format">Token-Format</h2>
+<table>
+<thead>
+<tr>
+<th>Bytes</th>
+<th>Bedeutung</th>
+<th>Tabelle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>80h, 80h+n</code></td>
+<td>Anweisung Nr. n (0–99)</td>
+<td><code>KWTAB_STMT</code>, Sprung über <code>STMT_TAB[n]</code></td>
+</tr>
+<tr>
+<td><code>81h, 80h+n</code></td>
+<td>Erweiterungstabelle 1 (leer)</td>
+<td>bei 1835h (<code>KWTAB_EXT81</code>)</td>
+</tr>
+<tr>
+<td><code>82h, 80h+n</code></td>
+<td>Erweiterungstabelle 2 (leer)</td>
+<td>bei 1837h (<code>KWTAB_EXT82</code>)</td>
+</tr>
+<tr>
+<td><code>83h</code>–<code>8Bh</code></td>
+<td>Vergleichsoperatoren <code>&gt;&lt;</code> <code>&lt;&gt;</code> <code>=&lt;</code> <code>&lt;=</code> <code>=&gt;</code> <code>&gt;=</code> (–) <code>&gt;</code> <code>&lt;</code></td>
+<td><code>KWTAB_OPS</code></td>
+</tr>
+<tr>
+<td><code>9Eh</code>, <code>9Fh</code></td>
+<td><code>TO</code>, <code>STEP</code></td>
+<td><code>KWTAB_OPS</code></td>
+</tr>
+<tr>
+<td><code>A0h</code>–<code>B3h</code></td>
+<td>Funktionen <code>LEFT$(</code> … <code>POS</code></td>
+<td><code>KWTAB_FUNC</code></td>
+</tr>
+<tr>
+<td><code>C0h</code>–<code>CBh</code></td>
+<td>mathematische Funktionen <code>RND(</code> … <code>SQR(</code></td>
+<td><code>KWTAB_MATH</code></td>
+</tr>
+<tr>
+<td><code>FFh</code></td>
+<td>im Programmtext: das Zeichen π</td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>00h</code>–<code>7Fh</code></td>
+<td>Klartext: Zahlen, Variablen, <code>= + - * / ^ , ; ( )</code>, Strings</td>
+<td>–</td>
+</tr>
+</tbody>
+</table>
+<p><code>KWTAB_OPS</code>, <code>KWTAB_FUNC</code> und <code>KWTAB_MATH</code> liegen ohne Trenner hintereinander und bilden für
+die Ein-Byte-Token <strong>eine</strong> Tabelle: Eintrag k hat das Token <code>83h+k</code>. Freie Plätze werden
+mit <code>FFh</code> aufgefüllt und zählen als Nummer mit. So kommen die Lücken 8Ch–9Dh, B4h–BFh und CCh
+zustande.</p>
+<p>Das Gleichheitszeichen bleibt in der Eingabe ASCII (<code>=</code>); weil es für Zuweisung und Vergleich
+dient, setzt erst die Ausdrucksauswertung <code>EVAL_EXPR</code> es für den Vergleich auf den Index 89h
+um. Auch <code>?</code> wird beim Tokenisieren zu <code>80h,88h</code> (PRINT).</p>
+<h3 id="aufbau-der-schlusselworttabellen">Aufbau der Schlüsselworttabellen</h3>
+<p>Jedes Wort steht als ASCII-Text, beim letzten Zeichen ist <strong>Bit 7</strong> gesetzt; <code>FFh</code> ist ein
+freier Platz, <code>00h</code> beendet die Tabelle:</p>
+<pre><code class="language-asm">KWTAB_STMT:
+        DEFB    &quot;RE&quot;,&quot;M&quot;+80h            ; Nr.   0: REM
+        DEFB    &quot;DAT&quot;,&quot;A&quot;+80h           ; Nr.   1: DATA
+        DEFB    &quot;DEF KEY&quot;,&quot;(&quot;+80h       ; Nr.   2: DEF KEY(
+        DEFB    0FFh                    ; Nr.   3: (frei)
+        DEFB    &quot;REA&quot;,&quot;D&quot;+80h           ; Nr.   4: READ
+        ...
+</code></pre>
+<p>Schlüsselwörter dürfen Leerzeichen und Klammern enthalten (<code>DEF KEY(</code>, <code>ON ERROR GOTO</code>,
+<code>LEFT$(</code>). Die Nummern 75–90 sind GP-IB-Befehle, 96–98 die RS-232C-Befehle.</p>
+<h2 id="crunch-eingabe-in-token-umsetzen">CRUNCH – Eingabe in Token umsetzen</h2>
+<p><code>CRUNCH</code> (1554h) liest <code>INBUF</code> und schreibt nach <code>TOKLINE</code>/<code>TOKTEXT</code>. Zuerst wird eine
+führende Zeilennummer mit <code>GETLNUM</code> gelesen und nach <code>TOKLNUM</code> gelegt (0 = Direktmodus).</p>
+<p>Danach für jede Position (<code>CR_LOOP</code>):</p>
+<ol>
+<li><code>COPYCHR</code> kopiert unverändert: Leerzeichen, <code>FFh</code>, <code>(</code> und <code>)</code> (<code>ISPASS</code>) sowie
+   Strings in Anführungszeichen bis zum schließenden <code>"</code> oder Zeilenende (<code>COPYSTR</code>).</li>
+<li>Sonst wird nacheinander gesucht:</li>
+<li><code>?</code> → <code>80h,88h</code> (PRINT)</li>
+<li><code>KWTAB_STMT</code> → <code>80h, 80h+n</code></li>
+<li>Tabelle bei 1835h → <code>81h, 80h+n</code> (leer)</li>
+<li><code>KWTAB_OPS/FUNC/MATH</code> → <code>83h+n</code></li>
+<li>Nichts gefunden: das Zeichen wird einzeln kopiert (<code>CR_SINGLE</code>).</li>
+<li>Nach den Anweisungen Nr. 0–3 (<code>REM</code>, <code>DATA</code>, <code>DEF KEY(</code> und der freie Platz 3) wird der Rest
+   bis <code>:</code> bzw. Zeilenende unverändert kopiert (<code>CR_LITERAL</code>, <code>COPY_TO_COLON</code>).</li>
+</ol>
+<p>Fehler: ein Zeichen ≥ 80h außerhalb von Strings ergibt Fehler 1, eine Zeile mit mehr als 255
+Zeichen Fehler 8.</p>
+<h3 id="kwsearch-das-suchverfahren">KWSEARCH – das Suchverfahren</h3>
+<p><code>KWSEARCH</code> (15B1h) vergleicht ab der aktuellen Position mit jedem Tabelleneintrag. Dabei
+werden <strong>Leerzeichen in der Eingabe und in der Tabelle überlesen</strong>. Der erste passende Eintrag
+gewinnt; es gibt keine Suche nach dem längsten Treffer und keine Prüfung auf Wortgrenzen.</p>
+<p>Daraus folgen einige Eigenheiten, die man beim Programmieren kennen muss:</p>
+<table>
+<thead>
+<tr>
+<th>Eingabe</th>
+<th>wird zu</th>
+<th>Grund</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TOTAL=1</code></td>
+<td><code>TO</code> + <code>TAL=1</code></td>
+<td>Schlüsselwörter werden überall erkannt, auch in Namen</td>
+</tr>
+<tr>
+<td><code>P R I N T 1</code></td>
+<td><code>PRINT 1</code></td>
+<td>Leerzeichen innerhalb eines Wortes werden überlesen</td>
+</tr>
+<tr>
+<td><code>IFA=BTHEN10</code></td>
+<td><code>IF A=B THEN 10</code></td>
+<td>keine Trennzeichen nötig</td>
+</tr>
+<tr>
+<td><code>REM IF</code></td>
+<td><code>REM</code> + Klartext <code>IF</code></td>
+<td>nach REM/DATA bleibt der Rest Klartext</td>
+</tr>
+<tr>
+<td><code>A$="PRINT"</code></td>
+<td>String bleibt</td>
+<td>Strings werden nicht untersucht</td>
+</tr>
+</tbody>
+</table>
+<p>Weil Variablennamen nur zwei signifikante Zeichen haben, aber beliebig lang sein dürfen, kann
+ein langer Name unbemerkt ein Schlüsselwort enthalten und die Zeile verändern.</p>
+<h2 id="listline-token-zuruck-in-klartext">LISTLINE – Token zurück in Klartext</h2>
+<p><code>LISTLINE</code> (15E2h) schreibt die Zeilennummer und ein Leerzeichen nach <code>INBUF</code> und kopiert
+dann den Text. Strings bleiben unverändert. Für ein Token wird mit <code>KWNTH</code> der n-te Eintrag
+der passenden Tabelle kopiert, wobei das Bit 7 des letzten Zeichens gelöscht wird:</p>
+<ul>
+<li><code>83h</code>–<code>FFh</code>: Eintrag <code>Token − 83h</code> aus <code>KWTAB_OPS</code> ff.</li>
+<li><code>80h/81h/82h + n</code>: Eintrag <code>n − 80h</code> aus <code>KWTAB_STMT</code> bzw. den Erweiterungstabellen.</li>
+</ul>
+<p>Nach REM/DATA/DEF KEY( folgt der Rest bis <code>:</code> unverändert. Da <code>LISTLINE</code> sofort nach <code>CRUNCH</code>
+auf jede Eingabe angewendet wird, sieht man auf dem Bildschirm immer die normalisierte Form.</p>
+<h2 id="programmzeilen-im-speicher">Programmzeilen im Speicher</h2>
+<p>Ab <code>PRGTXT</code> (725Ch) stehen die Zeilen aufsteigend nach Nummer:</p>
+<pre><code>+0  Link (2 Bytes, little-endian): Adresse der nächsten Zeile
++2  Zeilennummer (2 Bytes, 1–65535)
++4  Tokentext …
+    0Dh  Zeilenende
+…
+    00h 00h  Programmende (Link = 0)
+</code></pre>
+<p><code>LINESIZE</code> liefert die Länge einer Zeile (4 + Text + 0Dh). <code>GETLINK</code> liest Link und
+Zeilennummer, Z-Flag bei Link 0.</p>
+<h3 id="absolute-und-relative-links">Absolute und relative Links</h3>
+<p>Im Speicher sind die Links <strong>absolute Adressen</strong>. In Dateien (Typ BTX) stehen sie als
+<strong>Satzlänge</strong> (relativ), damit ein Programm an jede Adresse geladen werden kann:</p>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Richtung</th>
+<th>Aufruf</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>UNLINK</code></td>
+<td>absolut → relativ</td>
+<td>vor dem Speichern (SAVE, SWAP)</td>
+</tr>
+<tr>
+<td><code>RELINK</code></td>
+<td>relativ → absolut</td>
+<td>nach dem Laden, nach Fehlern; ein Link, der schon größer als die eigene Zeilenadresse ist, gilt als absolut und bleibt</td>
+</tr>
+</tbody>
+</table>
+<p>Weil <code>ERROR</code> immer <code>RELINK</code> aufruft, stimmen die Links auch nach einem Fehler mitten im
+Speichern wieder.</p>
+<h2 id="zeilen-einfugen-ersetzen-loschen-editline">Zeilen einfügen, ersetzen, löschen – EDITLINE</h2>
+<p><code>EDITLINE</code> (134Eh) übernimmt eine Zeile mit Nummer ins Programm:</p>
+<ol>
+<li>READ/DATA-Position und CONT zurücksetzen (<code>DATA_RESET</code>, <code>CONT_CLR</code>).</li>
+<li><code>FINDLINE</code> sucht die erste Zeile mit einer Nummer ≥ der neuen.</li>
+<li>Existiert die Nummer, wird die alte Zeile entfernt (<code>EDIT_DELETE</code>, über <code>MEMDEL</code>).</li>
+<li>Besteht der neue Text nur aus 0Dh, bleibt es beim Löschen (Zeile löschen = nur Nummer eingeben).</li>
+<li>Sonst wird an der Fundstelle Platz geschaffen (<code>MEMINS</code>) und <code>TOKLINE</code> hineinkopiert
+   (<code>EDIT_INSERT</code>).</li>
+<li><code>EDIT_FIXUP</code>: Bereichszeiger (<code>ADJ_PTRS</code>) und alle folgenden Links (<code>LINKS_ADD</code>) korrigieren.</li>
+</ol>
+<p>Variablen bleiben beim Editieren erhalten, weil die Bereichszeiger mitverschoben werden; nur
+<code>CONT</code> ist danach nicht mehr möglich.</p>
+<h2 id="zeilennummern">Zeilennummern</h2>
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Aufgabe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GETLNUM</code></td>
+<td>Dezimalzahl ab HL nach DE, Leerzeichen dazwischen werden überlesen; Überlauf über die Inline-Adresse</td>
+</tr>
+<tr>
+<td><code>GETLNUM_SN</code></td>
+<td>dasselbe, Überlauf ergibt Fehler 1</td>
+</tr>
+<tr>
+<td><code>FINDLINE</code></td>
+<td>Zeile suchen, HL = erste Zeile mit Nummer ≥ gesucht, Z bei Gleichheit, Programmende über Inline-Adresse</td>
+</tr>
+<tr>
+<td><code>GOTO_DE</code> / <code>GOTO_HL</code></td>
+<td>Zeile suchen, fehlt sie: Fehler 16</td>
+</tr>
+<tr>
+<td><code>NUM2DEC</code></td>
+<td>Zahl als Dezimaltext ohne führende Nullen</td>
+</tr>
+</tbody>
+</table>
+<h2 id="auto-und-list">AUTO und LIST</h2>
+<p><code>AUTO [start][,schritt]</code> (nur Direktmodus, Vorgaben 10/10) setzt <code>AUTO_FLAG</code>, <code>AUTO_LINE</code> und
+<code>AUTO_STEP</code>. <code>INLINE</code> gibt dann vor jeder Eingabe die nächste Nummer aus. Ein BREAK (Zeichen 0Bh)
+in der ersten Spalte beendet AUTO; läuft die Zeilennummer über 65535, wird AUTO mit Fehler 1
+abgebrochen.</p>
+<p><code>LIST[/P] [a][-[b]]</code> (nur Direktmodus) kopiert jede Zeile nach <code>TOKLINE</code> und wandelt sie mit
+<code>LISTLINE</code>. Auf dem Bildschirm wird nach den ersten 10 Zeilen pro Zeile kurz gewartet
+(<code>LIST_DELAY</code>); eine gedrückte Taste (Code FDh an Port EAh) hält an, BREAK bricht ab. Mit <code>/P</code>
+geht die Ausgabe an den Drucker (der Operand bei <code>LIST_DEV</code> wird dazu auf 1 gesetzt).</p>
+<h2 id="python-nachbildung">Python-Nachbildung</h2>
+<p><code>tools/sb6511tok.py</code> bildet <code>CRUNCH</code> und <code>LISTLINE</code> exakt nach und wandelt Programme zwischen
+MZF-Dateien und Klartext. <code>tools/test_sb6511tok.py</code> vergleicht die Nachbildung im
+Z80-Emulator mit den Originalroutinen und prüft alle 139 Programme von den Disketten in beide
+Richtungen.</p>
+<pre><code>python3 tools/sb6511tok.py detok PROG.MZF -o PROG.BAS
+python3 tools/sb6511tok.py tok PROG.BAS -o PROG.MZF -n "NAME"
+</code></pre>
+<footer><div class="pn"><a class="prev" href="architektur.html">← Aufbau und Speicher</a><a class="next" href="interpreter.html">Interpreterschleife und Ablauf →</a></div><p class="src">Grundlage: <code>SB6511_RS232.asm</code> (kommentiertes Disassembly). Adressen gelten für das Original-Abbild.</p></footer>
+</main>
+</body>
+</html>
